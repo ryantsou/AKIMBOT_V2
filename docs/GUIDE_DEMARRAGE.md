@@ -1,8 +1,8 @@
-# 🚀 Guide de survie AKIMBOT (à lire absolument !)
+# Guide de survie AKIMBOT (à lire absolument !)
 
 Yo .. Vu qu'on a restructuré les dossiers pour avoir un projet bien propre (fini le bazar à la racine), voici un petit récap express pour bien démarrer sans créer de conflits Git et tout casser.
 
-## 1️⃣ Mettre à jour son PC (Le truc à pas oublier)
+## 1. Mettre à jour son PC (Le truc à pas oublier)
 
 Avant de commencer à coder, assurez-vous d'avoir la toute dernière version de `master` :
 ```bash

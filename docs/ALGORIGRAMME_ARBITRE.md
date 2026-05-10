@@ -1,4 +1,4 @@
-# ⚖️ Algorigramme Serveur Arbitre
+# Algorigramme Serveur Arbitre
 
 Ce document modélise le processus de calcul du score lorsqu'un client (le robot) envoie un mouvement au serveur arbitre (Tâche #16).
 
@@ -6,7 +6,7 @@ Ce document modélise le processus de calcul du score lorsqu'un client (le robot
 
 ```mermaid
 graph TD
-    Start([🌐 Réception POST /api/mouvements]) --> Parse[Parsing JSON par FastAPI]
+    Start([Réception POST /api/mouvements]) --> Parse[Parsing JSON par FastAPI]
     Parse --> Valid{Données valides ?}
     
     Valid -- Non --> Err[Erreur 400 Bad Request]
@@ -22,7 +22,7 @@ graph TD
     Calc --> Update[Mise à jour de RobotSession.current_score]
     Skip --> Update
     
-    Update --> End([📤 Réponse HTTP 200 : Retourne le nouveau score])
+    Update --> End([Réponse HTTP 200 : Retourne le nouveau score])
 ```
 
 ## Description des étapes

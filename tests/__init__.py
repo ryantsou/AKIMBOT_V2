@@ -1,1 +1,0 @@
-# Fichier requis pour que pytest reconnaisse le dossier comme un module

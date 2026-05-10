@@ -6,12 +6,10 @@ import os
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox)
 from PyQt5.QtCore import QObject, pyqtSignal
 import martypy
-# import requests
 
 CALIBRATION_FILE = "calibration.json"
 
 class ColorSensor:
-	# Identifie les couleurs par distance euclidienne RGB avec valeurs calibrables
 	DEFAULT_COLORS = {
 		"red":    [255,   0,   0],
 		"green":  [  0, 255,   0],
@@ -49,12 +47,10 @@ class ColorSensor:
 		return detected if min_dist < sensitivity else "unknown"
 
 class ControllerSignals(QObject):
-	# Définit les signaux émis par le contrôleur pour communiquer avec l'UI
 	log_message = pyqtSignal(str)
 	connection_status = pyqtSignal(bool)
 
 class MockMarty:
-	# Faux robot pour pouvoir tester l'interface sans le matériel
 	def __init__(self, signals: ControllerSignals):
 		self.signals = signals
 
@@ -62,14 +58,16 @@ class MockMarty:
 		self.signals.log_message.emit("[MOCK] Marty fait une danse de célébration !")
         
 	def walk(self, num_steps=2, turn=0, **kwargs):
-		self.signals.log_message.emit(f"[MOCK] 🚶 Le faux robot marche : {num_steps} pas, rotation {turn}, options: {kwargs}")
+		self.signals.log_message.emit(f"[MOCK] Le faux robot marche : {num_steps} pas, rotation {turn}, options: {kwargs}")
+
+	def arms(self, left_angle, right_angle, move_time=1000, **kwargs):
+		self.signals.log_message.emit(f"[MOCK] Bras - Gauche: {left_angle}°, Droit: {right_angle}°")
 
 	def get_color_sensor_value_by_channel(self, add_on_name: str, channel_index: int) -> int:
-		mock_rgb = {0: 180, 1: 30, 2: 25}  # rouge simulé par défaut
+		mock_rgb = {0: 180, 1: 30, 2: 25}
 		return mock_rgb.get(channel_index, 0)
 
 class MartyController:
-	# Gère la connexion et les commandes directes au robot Marty
 	def __init__(self, method="wifi", address="mock"):
 		self.method = method
 		self.address = address
@@ -129,6 +127,34 @@ class MartyController:
 		else:
 			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de tourner.")
 
+	def lever_bras_gauche(self):
+		if self.connected and self.marty:
+			self.signals.log_message.emit("Action : Marty lève le bras gauche !")
+			self.marty.arms(100, 0, 1000)
+		else:
+			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les bras.")
+
+	def baisser_bras_gauche(self):
+		if self.connected and self.marty:
+			self.signals.log_message.emit("Action : Marty baisse le bras gauche !")
+			self.marty.arms(0, 0, 1000)
+		else:
+			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les bras.")
+
+	def lever_bras_droit(self):
+		if self.connected and self.marty:
+			self.signals.log_message.emit("Action : Marty lève le bras droit !")
+			self.marty.arms(0, 100, 1000)
+		else:
+			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les bras.")
+
+	def baisser_bras_droit(self):
+		if self.connected and self.marty:
+			self.signals.log_message.emit("Action : Marty baisse le bras droit !")
+			self.marty.arms(0, 0, 1000)
+		else:
+			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les bras.")
+
 	def lire_rgb(self) -> tuple:
 		if not self.connected or not self.marty:
 			self.signals.log_message.emit("Marty non connecté. Impossible de lire le capteur couleur.")
@@ -152,61 +178,48 @@ class MartyController:
 		self.signals.log_message.emit(f"Calibration '{couleur}' enregistrée — R:{r}  G:{g}  B:{b}")
 
 class DanceParser:
-	# Décode les fichiers .dance pour extraire les séquences de mouvements
 	def parse(self, filepath: str) -> list:
-		# TODO: Lire le fichier et parser les instructions
 		print(f"Lecture de la chorégraphie : {filepath}")
 		return []
 
 class ChoreographyPlayer:
-	# Exécute une liste de mouvements sans bloquer l'interface principale
 	def __init__(self, controller: MartyController):
 		self.controller = controller
 
 	def play(self, sequence: list):
-		# TODO: Exécuter les commandes dans un QThread
 		print(f"Lancement de la chorégraphie ({len(sequence)} mouvements)")
 
 class ArbitreAPIClient:
-	# Communique avec le serveur REST pour envoyer les actions et récupérer le score
 	def __init__(self, base_url="http://localhost:8000"):
 		self.base_url = base_url
 
 	def send_movement(self, action_type: str, color: str = None):
-		# TODO: Faire un POST via requests
 		payload = {"action_type": action_type, "color_detected": color}
 		print(f"Envoi de l'action à l'arbitre : {payload}")
 
 class MainWindow(QMainWindow):
-	# Fenêtre principale de l'application PyQt
 	def __init__(self):
 		super().__init__()
 		self.setWindowTitle("AKIMBOT - Client Robot")
 		self.resize(900, 700)
         
-		# Instanciation des sous-composants
-		
 		self.controller = MartyController(address="192.168.0.100")
 		self.api_client = ArbitreAPIClient()
 		self.parser = DanceParser()
 		self.player = ChoreographyPlayer(self.controller)
 		self.color_sensor = ColorSensor()
         
-		# Lier les signaux du contrôleur aux slots de la fenêtre
 		self.controller.signals.log_message.connect(self.update_log)
 		self.controller.signals.connection_status.connect(self.on_connection_status_changed)
 
 		self.init_ui()
 
 	def init_ui(self):
-		# Widget central et layout principal horizontal
 		main_widget = QWidget()
 		main_layout = QHBoxLayout(main_widget)
 
-		# === Panneau de gauche : Contrôles ===
 		left_panel_layout = QVBoxLayout()
 
-		# Groupe Connexion
 		connection_group = QGroupBox("Connexion")
 		connection_layout = QVBoxLayout()
 		self.status_label = QLabel("Statut : Déconnecté")
@@ -216,7 +229,6 @@ class MainWindow(QMainWindow):
 		connection_layout.addWidget(self.btn_connect)
 		connection_group.setLayout(connection_layout)
 
-		# Groupe Contrôles Manuels (Pad Directionnel)
 		manual_controls_group = QGroupBox("Piloter Marty")
 		manual_controls_layout = QGridLayout()
         
@@ -244,7 +256,6 @@ class MainWindow(QMainWindow):
 		self.btn_rgb.clicked.connect(self.lire_capteur_rgb)
 		self.btn_rgb.setEnabled(False)
 
-		# Ajout des boutons directionnels à la grille
 		manual_controls_layout.addWidget(self.btn_walk, 0, 1)
 		manual_controls_layout.addWidget(self.btn_left, 1, 0)
 		manual_controls_layout.addWidget(self.btn_test, 1, 1)
@@ -253,7 +264,31 @@ class MainWindow(QMainWindow):
 		manual_controls_layout.addWidget(self.btn_rgb, 3, 0, 1, 3)
 		manual_controls_group.setLayout(manual_controls_layout)
 
-		# Groupe Calibration
+		arms_group = QGroupBox("Contrôles Bras")
+		arms_layout = QGridLayout()
+
+		self.btn_bras_gauche_up = QPushButton("Lever Bras G.")
+		self.btn_bras_gauche_up.clicked.connect(self.controller.lever_bras_gauche)
+		self.btn_bras_gauche_up.setEnabled(False)
+
+		self.btn_bras_gauche_down = QPushButton("Baisser Bras G.")
+		self.btn_bras_gauche_down.clicked.connect(self.controller.baisser_bras_gauche)
+		self.btn_bras_gauche_down.setEnabled(False)
+
+		self.btn_bras_droit_up = QPushButton("Lever Bras D.")
+		self.btn_bras_droit_up.clicked.connect(self.controller.lever_bras_droit)
+		self.btn_bras_droit_up.setEnabled(False)
+
+		self.btn_bras_droit_down = QPushButton("Baisser Bras D.")
+		self.btn_bras_droit_down.clicked.connect(self.controller.baisser_bras_droit)
+		self.btn_bras_droit_down.setEnabled(False)
+
+		arms_layout.addWidget(self.btn_bras_gauche_up, 0, 0)
+		arms_layout.addWidget(self.btn_bras_gauche_down, 0, 1)
+		arms_layout.addWidget(self.btn_bras_droit_up, 1, 0)
+		arms_layout.addWidget(self.btn_bras_droit_down, 1, 1)
+		arms_group.setLayout(arms_layout)
+
 		calibration_group = QGroupBox("Calibrer le capteur couleur")
 		calibration_layout = QVBoxLayout()
 		self.color_combo = QComboBox()
@@ -267,17 +302,16 @@ class MainWindow(QMainWindow):
 
 		left_panel_layout.addWidget(connection_group)
 		left_panel_layout.addWidget(manual_controls_group)
+		left_panel_layout.addWidget(arms_group)
 		left_panel_layout.addWidget(calibration_group)
 		left_panel_layout.addStretch()
 
-		# === Panneau de droite : Logs ===
 		right_panel_layout = QVBoxLayout()
 		self.log_console = QTextEdit()
 		self.log_console.setReadOnly(True)
 		right_panel_layout.addWidget(QLabel("Logs d'activité :"))
 		right_panel_layout.addWidget(self.log_console)
 
-		# Ajout des deux panneaux au layout principal
 		main_layout.addLayout(left_panel_layout, 1)
 		main_layout.addLayout(right_panel_layout, 2)
 
@@ -291,7 +325,11 @@ class MainWindow(QMainWindow):
 	def on_connection_status_changed(self, connected: bool):
 		if connected:
 			self.status_label.setText(f"Statut : Connecté ({self.controller.method} - {self.controller.address}) !")
-			for btn in [self.btn_walk, self.btn_left, self.btn_test, self.btn_right, self.btn_backward, self.btn_rgb, self.btn_calibrate]:
+			buttons = [
+				self.btn_walk, self.btn_left, self.btn_test, self.btn_right, self.btn_backward, self.btn_rgb, self.btn_calibrate,
+				self.btn_bras_gauche_up, self.btn_bras_gauche_down, self.btn_bras_droit_up, self.btn_bras_droit_down
+			]
+			for btn in buttons:
 				btn.setEnabled(True)
 			self.btn_connect.setEnabled(False)
 		else:
@@ -309,7 +347,7 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
-	signal.signal(signal.SIGINT, signal.SIG_DFL)  # Permet de quitter avec Ctrl+C proprement
+	signal.signal(signal.SIGINT, signal.SIG_DFL)
 	window = MainWindow()
 	window.show()
 	sys.exit(app.exec_())

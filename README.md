@@ -1,13 +1,13 @@
 - `approbot/client_robot.py`: l'interface graphique du client (PyQt5)
 - `requirements.txt`: liste des dépendances Python (FastAPI, PyQt5, etc.)
 +- `appserver/serveur_arbitre.py`: le serveur arbitre (FastAPI)
-# 🤖 AKIMBOT
+# AKIMBOT
 
 Bienvenue sur le dépôt du projet **AKIMBOT** ! 
 Il s'agit de notre projet visant à développer un système complet pour contrôler le robot Marty (via une interface graphique) et gérer des affrontements/danses via un serveur arbitre central.
 src : https://userguides.robotical.io/martyv2/documentation/python_function_reference#init
 
-## 🎯 Les grands objectifs du projet
+## Les grands objectifs du projet
 
 Pour mener à bien ce projet, voici ce que nous allons développer :
 
@@ -17,7 +17,7 @@ Pour mener à bien ce projet, voici ce que nous allons développer :
 - **La gestion de projet** : suivi rigoureux sur GitHub (issues, kanban, branches, pull requests).
 - **La qualité** : tests unitaires, revue de code, et bien sûr une démo finale fonctionnelle !
 
-## 👥 L'équipe
+## L'équipe
 
 - **RAJHONSON**
 - **IHEB**
@@ -25,7 +25,7 @@ Pour mener à bien ce projet, voici ce que nous allons développer :
 
 
 
-## 🛠️ Installation
+## Installation
 
 Pour configurer l'environnement (`.venv`) et installer les dépendances :
 ```bash
