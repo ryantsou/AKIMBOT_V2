@@ -1,1 +1,20 @@
-# ...existing code...
+# Exemple de fichier .battle
+MVS 10
+[N]
+ALB+ARB=1
+ALU=-1
+ARU=-1
+ALB=1
+ARB=1
+XSD=1
+XNG=-1
+[B]
+ALB,ARB,ALU,ARU=-1
+XSD=2
+[R]
+ALU+ARU=2
+ALU,ARU=1
+ALB,ARB=1
+XNG=3
+XSD=-2
+XNT=-1
