@@ -1,0 +1,7 @@
+# Python dependencies : 
+PyQt5
+pytest
+martypy
+requests
+fastapi
+uvicorn
