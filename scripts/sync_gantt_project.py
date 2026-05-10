@@ -12,7 +12,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 XLSX_CANDIDATES = ["gantt.xlsx", "gantt_detaille.xlsx"]
 OWNER = "ryantsou"
-REPO = "AKIMBOT"
+REPO = "AKIMBOT_V2"
 PROJECT_NUMBER = "2"
 
 NS_MAIN = {"a": "http://schemas.openxmlformats.org/spreadsheetml/2006/main"}
