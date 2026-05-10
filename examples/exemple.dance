@@ -1,1 +1,11 @@
-# ...existing code...
+# Exemple de fichier .dance
+SEQ 1
+1U
+1L
+2B
+2R
+1U
+1L
+ACT
+N ARU ALB XNG
+B XSD
