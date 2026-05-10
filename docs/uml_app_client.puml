@@ -1,1 +1,56 @@
-# ...existing code...
+﻿@startuml UML_App_Client
+
+title AKIMBOT - App Client (client/client_robot.py)
+
+class MainWindow {
+    - controller : MartyController
+    - api_client : ArbitreAPIClient
+    - parser : DanceParser
+    - player : ChoreographyPlayer
+    - status_label : QLabel
+    - btn_connect : QPushButton
+    - btn_test : QPushButton
+    + __init__()
+    + connect_marty() : void
+    + test_marty() : void
+}
+
+class MartyController {
+    - method : str
+    - address : str
+    - connected : bool
+    - marty : Marty | MockMarty
+    + __init__(method: str, address: str)
+    + connect() : bool
+    + test_mouvement() : void
+}
+
+class MockMarty {
+    + celebrate() : void
+    + walk(num_steps: int, turn: int) : void
+}
+
+class DanceParser {
+    + parse(filepath: str) : list
+}
+
+class ChoreographyPlayer {
+    - controller : MartyController
+    + __init__(controller: MartyController)
+    + play(sequence: list) : void
+}
+
+class ArbitreAPIClient {
+    - base_url : str
+    + __init__(base_url: str)
+    + send_movement(action_type: str, color: str) : void
+}
+
+MainWindow --> MartyController
+MainWindow --> ArbitreAPIClient
+MainWindow --> DanceParser
+MainWindow --> ChoreographyPlayer
+ChoreographyPlayer --> MartyController
+MartyController --> MockMarty : "si address == 'mock'"
+
+@enduml
