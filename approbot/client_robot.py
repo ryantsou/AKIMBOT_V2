@@ -3,9 +3,10 @@ import signal
 import json
 import math
 import os
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox, QProgressBar, QFileDialog)
 from PyQt5.QtCore import QObject, pyqtSignal
 import martypy
+import time
 
 CALIBRATION_FILE = "calibration.json"
 
@@ -206,14 +207,35 @@ class MartyController:
 class DanceParser:
 	def parse(self, filepath: str) -> list:
 		print(f"Lecture de la chorégraphie : {filepath}")
-		return []
+		sequence = []
+		try:
+			with open(filepath, "r", encoding="utf-8") as f:
+				for line in f:
+					line = line.strip()
+					if not line or line.startswith("#"):
+						continue
+					sequence.append(line)
+		except Exception as e:
+			print(f"Erreur lecture .dance: {e}")
+		return sequence
 
 class ChoreographyPlayer:
 	def __init__(self, controller: MartyController):
 		self.controller = controller
 
-	def play(self, sequence: list):
-		print(f"Lancement de la chorégraphie ({len(sequence)} mouvements)")
+	def play(self, sequence: list, progress_callback=None):
+		total = len(sequence)
+		print(f"Lancement de la chorégraphie ({total} mouvements)")
+		for idx, action in enumerate(sequence, start=1):
+			# Log the action and (optionally) execute a mapped controller action
+			self.controller.signals.log_message.emit(f"Exécution action {idx}/{total}: {action}")
+			# Simulate execution time
+			time.sleep(0.05)
+			if progress_callback:
+				try:
+					progress_callback(idx, total)
+				except Exception:
+					pass
 
 class ArbitreAPIClient:
 	def __init__(self, base_url="http://localhost:8000"):
@@ -234,6 +256,7 @@ class MainWindow(QMainWindow):
 		self.parser = DanceParser()
 		self.player = ChoreographyPlayer(self.controller)
 		self.color_sensor = ColorSensor()
+		self.current_sequence = []
         
 		self.controller.signals.log_message.connect(self.update_log)
 		self.controller.signals.connection_status.connect(self.on_connection_status_changed)
@@ -346,10 +369,28 @@ class MainWindow(QMainWindow):
 		calibration_layout.addWidget(self.btn_calibrate)
 		calibration_group.setLayout(calibration_layout)
 
+		# Chorégraphie: charger / jouer + progression
+		choreography_group = QGroupBox("Chorégraphie")
+		choreo_layout = QVBoxLayout()
+		self.btn_load_dance = QPushButton("Charger .dance")
+		self.btn_load_dance.clicked.connect(self.load_dance)
+		self.btn_load_dance.setEnabled(False)
+		self.btn_play_dance = QPushButton("Jouer chorégraphie")
+		self.btn_play_dance.clicked.connect(self.play_dance)
+		self.btn_play_dance.setEnabled(False)
+		self.progress_bar = QProgressBar()
+		self.progress_bar.setRange(0, 100)
+		self.progress_bar.setValue(0)
+		choreo_layout.addWidget(self.btn_load_dance)
+		choreo_layout.addWidget(self.btn_play_dance)
+		choreo_layout.addWidget(self.progress_bar)
+		choreography_group.setLayout(choreo_layout)
+
 		left_panel_layout.addWidget(connection_group)
 		left_panel_layout.addWidget(manual_controls_group)
 		left_panel_layout.addWidget(arms_group)
 		left_panel_layout.addWidget(calibration_group)
+		left_panel_layout.addWidget(choreography_group)
 		left_panel_layout.addStretch()
 
 		right_panel_layout = QVBoxLayout()
@@ -376,6 +417,12 @@ class MainWindow(QMainWindow):
 				self.btn_bras_gauche_up, self.btn_bras_gauche_down, self.btn_bras_droit_up, self.btn_bras_droit_down,
 				self.btn_yeux_faches, self.btn_yeux_surpris, self.btn_yeux_wiggle
 			]
+			# Enable choreography buttons as well
+			try:
+				buttons.append(self.btn_load_dance)
+				buttons.append(self.btn_play_dance)
+			except Exception:
+				pass
 			for btn in buttons:
 				btn.setEnabled(True)
 			self.btn_connect.setEnabled(False)
@@ -392,6 +439,32 @@ class MainWindow(QMainWindow):
 	def lire_capteur_rgb(self): self.controller.lire_rgb()
 	def calibrer_couleur(self): self.controller.calibrer_couleur(self.color_combo.currentText(), self.color_sensor)
 	def lire_batterie(self): self.controller.lire_batterie()
+
+	def load_dance(self):
+		fname, _ = QFileDialog.getOpenFileName(self, "Ouvrir fichier .dance", "", "Dance files (*.dance);;All files (*)")
+		if not fname:
+			return
+		seq = self.parser.parse(fname)
+		self.current_sequence = seq
+		self.update_log(f"Chorégraphie chargée : {len(seq)} mouvements")
+		self.progress_bar.setValue(0)
+		self.btn_play_dance.setEnabled(len(seq) > 0 and self.controller.connected)
+
+	def play_dance(self):
+		if not self.current_sequence:
+			self.update_log("Aucune chorégraphie chargée.")
+			return
+		self.btn_play_dance.setEnabled(False)
+		self.player.play(self.current_sequence, progress_callback=self._update_progress)
+		self.btn_play_dance.setEnabled(True)
+		self.update_log("Lecture chorégraphie terminée.")
+
+	def _update_progress(self, idx, total):
+		percent = int((idx / total) * 100) if total > 0 else 0
+		try:
+			self.progress_bar.setValue(percent)
+		except Exception:
+			pass
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
