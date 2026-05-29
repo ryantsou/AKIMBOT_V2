@@ -51,6 +51,7 @@ class ControllerSignals(QObject):
 	log_message = pyqtSignal(str)
 	connection_status = pyqtSignal(bool)
 	dance_progress = pyqtSignal(int, int)
+	battery_updated = pyqtSignal(float)
 
 class MockMarty:
 	def __init__(self, signals: ControllerSignals):
@@ -75,6 +76,9 @@ class MockMarty:
 	def get_battery_remaining(self) -> float:
 		self.signals.log_message.emit("[MOCK] Lecture de la batterie...")
 		return 85.5
+
+	def get_battery_voltage(self) -> float:
+		return 8.2
 
 class MartyController:
 	def __init__(self, method="wifi", address="mock"):
@@ -177,7 +181,14 @@ class MartyController:
 			return 0.0
 		try:
 			bat = self.marty.get_battery_remaining()
+			if bat == 0:
+				try:
+					volt = self.marty.get_battery_voltage()
+					self.signals.log_message.emit(f"Alerte : Batterie à 0%. Voltage brut : {volt}V (En charge ?)")
+				except Exception:
+					pass
 			self.signals.log_message.emit(f"Niveau de batterie : {bat}%")
+			self.signals.battery_updated.emit(float(bat))
 			return bat
 		except Exception as e:
 			self.signals.log_message.emit(f"Erreur lecture batterie : {e}")
@@ -262,6 +273,7 @@ class MainWindow(QMainWindow):
 		self.controller.signals.log_message.connect(self.update_log)
 		self.controller.signals.connection_status.connect(self.on_connection_status_changed)
 		self.controller.signals.dance_progress.connect(self.update_dance_progress)
+		self.controller.signals.battery_updated.connect(self.update_battery_ui)
 
 		self.init_ui()
 
@@ -291,6 +303,16 @@ class MainWindow(QMainWindow):
 		self.btn_connect.clicked.connect(self.connect_marty)
 		connection_layout.addWidget(self.btn_connect)
 		connection_group.setLayout(connection_layout)
+
+		telemetry_group = QGroupBox("Télémétrie")
+		telemetry_layout = QVBoxLayout()
+		self.battery_label = QLabel("Batterie : Inconnue")
+		self.battery_bar = QProgressBar()
+		self.battery_bar.setRange(0, 100)
+		self.battery_bar.setValue(0)
+		telemetry_layout.addWidget(self.battery_label)
+		telemetry_layout.addWidget(self.battery_bar)
+		telemetry_group.setLayout(telemetry_layout)
 
 		manual_controls_group = QGroupBox("Piloter Marty")
 		manual_controls_layout = QGridLayout()
@@ -400,6 +422,7 @@ class MainWindow(QMainWindow):
 		dance_group.setLayout(dance_layout)
 
 		left_panel_layout.addWidget(connection_group)
+		left_panel_layout.addWidget(telemetry_group)
 		left_panel_layout.addWidget(manual_controls_group)
 		left_panel_layout.addWidget(arms_group)
 		left_panel_layout.addWidget(calibration_group)
@@ -471,6 +494,10 @@ class MainWindow(QMainWindow):
 
 	def _update_progress(self, idx, total):
 		self.update_dance_progress(idx, total)
+
+	def update_battery_ui(self, value: float):
+		self.battery_bar.setValue(int(value))
+		self.battery_label.setText(f"Batterie : {value:.1f}%")
 
 	def update_log(self, message: str): self.log_console.append(message)
 	def walk_marty(self): self.controller.avancer()
