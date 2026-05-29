@@ -3,10 +3,15 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
 import uvicorn
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QGroupBox
-from PyQt5.QtCore import QThread
+from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QGroupBox, QTextEdit
+from PyQt5.QtCore import QThread, QObject, pyqtSignal
 
 app = FastAPI(title="AKIMBOT - Serveur Arbitre")
+
+class ServerSignals(QObject):
+    new_log = pyqtSignal(str)
+
+signals = ServerSignals()
 
 class MovementAction(BaseModel):
     # Données envoyées par le robot après un mouvement
@@ -30,6 +35,7 @@ class BattleArbitre:
 
 @app.get("/")
 def read_root():
+    signals.new_log.emit("GET / - Vérification de l'état du serveur.")
     return {"status": "ok", "message": "Le Serveur Arbitre AKIMBOT est prêt !"}
 
 # --- 2. Thread d'arrière-plan pour uvicorn ---
@@ -46,6 +52,7 @@ class ArbitreWindow(QMainWindow):
         self.setWindowTitle("AKIMBOT - Serveur Arbitre")
         self.resize(900, 600)
         self.init_ui()
+        signals.new_log.connect(self.add_log)
 
     def init_ui(self):
         main_widget = QWidget()
@@ -60,15 +67,19 @@ class ArbitreWindow(QMainWindow):
 
         right_group = QGroupBox("Logs Réseau")
         right_layout = QVBoxLayout()
-        self.log_placeholder = QLabel("En attente de la tâche #48 (Logs)...")
-        right_layout.addWidget(self.log_placeholder)
-        right_layout.addStretch()
+        self.log_console = QTextEdit()
+        self.log_console.setReadOnly(True)
+        self.log_console.append("Serveur démarré. En attente de requêtes...")
+        right_layout.addWidget(self.log_console)
         right_group.setLayout(right_layout)
 
         main_layout.addWidget(left_group, 1)
         main_layout.addWidget(right_group, 2)
 
         self.setCentralWidget(main_widget)
+
+    def add_log(self, message: str):
+        self.log_console.append(message)
 
 def main():
     qt_app = QApplication(sys.argv)
