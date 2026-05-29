@@ -109,6 +109,11 @@ class ArbitreWindow(QMainWindow):
         left_group = QGroupBox("Robots Connectés & Scores")
         left_layout = QVBoxLayout()
 
+        self.current_score_label = QLabel("Score en temps réel : aucun mouvement reçu")
+        self.current_score_label.setStyleSheet("font-weight: bold; margin-bottom: 8px;")
+        self.total_score_label = QLabel("Score total : 0")
+        self.total_score_label.setStyleSheet("margin-bottom: 12px;")
+
         self.robots_table = QTableWidget(0, 2)
         self.robots_table.setHorizontalHeaderLabels(["Robot", "Score"])
         self.robots_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
@@ -117,6 +122,8 @@ class ArbitreWindow(QMainWindow):
         self.robots_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.robots_table.verticalHeader().setVisible(False)
 
+        left_layout.addWidget(self.current_score_label)
+        left_layout.addWidget(self.total_score_label)
         left_layout.addWidget(self.robots_table)
         left_group.setLayout(left_layout)
 
@@ -137,16 +144,22 @@ class ArbitreWindow(QMainWindow):
         self.log_console.append(message)
 
     def update_robot_table(self, robot_id: str, score: int):
+        updated = False
         for row in range(self.robots_table.rowCount()):
             if self.robots_table.item(row, 0).text() == robot_id:
                 self.robots_table.item(row, 1).setText(str(score))
-                return
-        row = self.robots_table.rowCount()
-        self.robots_table.insertRow(row)
-        self.robots_table.setItem(row, 0, QTableWidgetItem(robot_id))
-        score_item = QTableWidgetItem(str(score))
-        score_item.setForeground(QColor("#2ecc71"))
-        self.robots_table.setItem(row, 1, score_item)
+                updated = True
+                break
+        if not updated:
+            row = self.robots_table.rowCount()
+            self.robots_table.insertRow(row)
+            self.robots_table.setItem(row, 0, QTableWidgetItem(robot_id))
+            score_item = QTableWidgetItem(str(score))
+            score_item.setForeground(QColor("#2ecc71"))
+            self.robots_table.setItem(row, 1, score_item)
+
+        self.current_score_label.setText(f"Score en temps réel : {robot_id} → {score}")
+        self.total_score_label.setText(f"Score total : {sum(robots_scores.values())}")
 
 def main():
     qt_app = QApplication(sys.argv)
