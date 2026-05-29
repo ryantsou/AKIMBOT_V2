@@ -3,13 +3,21 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
 import uvicorn
-from PyQt5.QtWidgets import QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QGroupBox, QTextEdit
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout,
+    QWidget, QGroupBox, QTextEdit, QTableWidget, QTableWidgetItem, QHeaderView
+)
 from PyQt5.QtCore import QThread, QObject, pyqtSignal
+from PyQt5.QtGui import QColor
 
 app = FastAPI(title="AKIMBOT - Serveur Arbitre")
 
+# Stockage en mémoire : robot_id -> score
+robots_scores: dict = {}
+
 class ServerSignals(QObject):
     new_log = pyqtSignal(str)
+    robot_updated = pyqtSignal(str, int)  # (robot_id, score)
 
 signals = ServerSignals()
 
@@ -38,6 +46,21 @@ def read_root():
     signals.new_log.emit("GET / - Vérification de l'état du serveur.")
     return {"status": "ok", "message": "Le Serveur Arbitre AKIMBOT est prêt !"}
 
+@app.post("/robot/connect")
+def robot_connect(session: RobotSession):
+    if session.robot_id not in robots_scores:
+        robots_scores[session.robot_id] = 0
+    signals.new_log.emit(f"POST /robot/connect - Robot '{session.robot_id}' (équipe {session.team}) connecté.")
+    signals.robot_updated.emit(session.robot_id, robots_scores[session.robot_id])
+    return {"status": "connected", "robot_id": session.robot_id}
+
+@app.post("/robot/score")
+def update_score(session: RobotSession):
+    robots_scores[session.robot_id] = session.current_score
+    signals.new_log.emit(f"POST /robot/score - Robot '{session.robot_id}' → score {session.current_score}.")
+    signals.robot_updated.emit(session.robot_id, session.current_score)
+    return {"status": "updated", "robot_id": session.robot_id, "score": session.current_score}
+
 # --- 2. Thread d'arrière-plan pour uvicorn ---
 class UvicornThread(QThread):
     def run(self):
@@ -53,6 +76,7 @@ class ArbitreWindow(QMainWindow):
         self.resize(900, 600)
         self.init_ui()
         signals.new_log.connect(self.add_log)
+        signals.robot_updated.connect(self.update_robot_table)
 
     def init_ui(self):
         main_widget = QWidget()
@@ -60,9 +84,16 @@ class ArbitreWindow(QMainWindow):
 
         left_group = QGroupBox("Robots Connectés & Scores")
         left_layout = QVBoxLayout()
-        self.score_placeholder = QLabel("En attente de la tâche #47 (Scores)...")
-        left_layout.addWidget(self.score_placeholder)
-        left_layout.addStretch()
+
+        self.robots_table = QTableWidget(0, 2)
+        self.robots_table.setHorizontalHeaderLabels(["Robot", "Score"])
+        self.robots_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
+        self.robots_table.horizontalHeader().setSectionResizeMode(1, QHeaderView.ResizeToContents)
+        self.robots_table.setEditTriggers(QTableWidget.NoEditTriggers)
+        self.robots_table.setSelectionBehavior(QTableWidget.SelectRows)
+        self.robots_table.verticalHeader().setVisible(False)
+
+        left_layout.addWidget(self.robots_table)
         left_group.setLayout(left_layout)
 
         right_group = QGroupBox("Logs Réseau")
@@ -80,6 +111,18 @@ class ArbitreWindow(QMainWindow):
 
     def add_log(self, message: str):
         self.log_console.append(message)
+
+    def update_robot_table(self, robot_id: str, score: int):
+        for row in range(self.robots_table.rowCount()):
+            if self.robots_table.item(row, 0).text() == robot_id:
+                self.robots_table.item(row, 1).setText(str(score))
+                return
+        row = self.robots_table.rowCount()
+        self.robots_table.insertRow(row)
+        self.robots_table.setItem(row, 0, QTableWidgetItem(robot_id))
+        score_item = QTableWidgetItem(str(score))
+        score_item.setForeground(QColor("#2ecc71"))
+        self.robots_table.setItem(row, 1, score_item)
 
 def main():
     qt_app = QApplication(sys.argv)
