@@ -37,9 +37,12 @@ class BattleArbitre:
     def __init__(self):
         self.rules = {}
 
-    def evaluate_action(self, action: MovementAction, session: RobotSession):
+    def evaluate_action(self, action: MovementAction, session: Optional[RobotSession] = None) -> int:
         # TODO: Calculer les points en fonction de l'action et des règles
-        pass
+        # Exemple minimal: renvoyer 1 point pour certaines actions, sinon 0
+        if action.action_type.lower() in ("success", "score", "point"):
+            return 1
+        return 0
 
 @app.get("/")
 def read_root():
@@ -60,6 +63,27 @@ def update_score(session: RobotSession):
     signals.new_log.emit(f"POST /robot/score - Robot '{session.robot_id}' → score {session.current_score}.")
     signals.robot_updated.emit(session.robot_id, session.current_score)
     return {"status": "updated", "robot_id": session.robot_id, "score": session.current_score}
+
+class MovementRequest(BaseModel):
+    action: MovementAction
+    session: Optional[RobotSession] = None
+
+# POST /api/mouvements
+@app.post("/api/mouvements")
+def post_mouvement(payload: MovementRequest):
+    """Recevoir un mouvement du robot, l'évaluer et renvoyer le score attribué."""
+    arbitre = BattleArbitre()
+    points = arbitre.evaluate_action(payload.action, payload.session)
+    response = {
+        "status": "ok",
+        "awarded_points": points,
+        "action_type": payload.action.action_type,
+        "color_detected": payload.action.color_detected,
+    }
+    if payload.session:
+        response["robot_id"] = payload.session.robot_id
+        response["team"] = payload.session.team
+    return response
 
 # --- 2. Thread d'arrière-plan pour uvicorn ---
 class UvicornThread(QThread):
