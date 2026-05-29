@@ -63,9 +63,16 @@ class MockMarty:
 	def arms(self, left_angle, right_angle, move_time=1000, **kwargs):
 		self.signals.log_message.emit(f"[MOCK] Bras - Gauche: {left_angle}°, Droit: {right_angle}°")
 
+	def eyes(self, pose_or_angle, **kwargs):
+		self.signals.log_message.emit(f"[MOCK] Yeux : {pose_or_angle}")
+
 	def get_color_sensor_value_by_channel(self, add_on_name: str, channel_index: int) -> int:
 		mock_rgb = {0: 180, 1: 30, 2: 25}
 		return mock_rgb.get(channel_index, 0)
+
+	def get_battery_remaining(self) -> float:
+		self.signals.log_message.emit("[MOCK] Lecture de la batterie...")
+		return 85.5
 
 class MartyController:
 	def __init__(self, method="wifi", address="mock"):
@@ -154,6 +161,25 @@ class MartyController:
 			self.marty.arms(0, 0, 1000)
 		else:
 			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les bras.")
+
+	def bouger_yeux(self, expression: str):
+		if self.connected and self.marty:
+			self.signals.log_message.emit(f"Action : Marty change ses yeux ({expression}) !")
+			self.marty.eyes(expression)
+		else:
+			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les yeux.")
+
+	def lire_batterie(self) -> float:
+		if not self.connected or not self.marty:
+			self.signals.log_message.emit("Marty non connecté. Impossible de lire la batterie.")
+			return 0.0
+		try:
+			bat = self.marty.get_battery_remaining()
+			self.signals.log_message.emit(f"Niveau de batterie : {bat}%")
+			return bat
+		except Exception as e:
+			self.signals.log_message.emit(f"Erreur lecture batterie : {e}")
+			return 0.0
 
 	def lire_rgb(self) -> tuple:
 		if not self.connected or not self.marty:
@@ -256,15 +282,20 @@ class MainWindow(QMainWindow):
 		self.btn_rgb.clicked.connect(self.lire_capteur_rgb)
 		self.btn_rgb.setEnabled(False)
 
+		self.btn_battery = QPushButton("Lire Batterie")
+		self.btn_battery.clicked.connect(self.lire_batterie)
+		self.btn_battery.setEnabled(False)
+
 		manual_controls_layout.addWidget(self.btn_walk, 0, 1)
 		manual_controls_layout.addWidget(self.btn_left, 1, 0)
 		manual_controls_layout.addWidget(self.btn_test, 1, 1)
 		manual_controls_layout.addWidget(self.btn_right, 1, 2)
 		manual_controls_layout.addWidget(self.btn_backward, 2, 1)
 		manual_controls_layout.addWidget(self.btn_rgb, 3, 0, 1, 3)
+		manual_controls_layout.addWidget(self.btn_battery, 4, 0, 1, 3)
 		manual_controls_group.setLayout(manual_controls_layout)
 
-		arms_group = QGroupBox("Contrôles Bras")
+		arms_group = QGroupBox("Contrôles Bras & Yeux")
 		arms_layout = QGridLayout()
 
 		self.btn_bras_gauche_up = QPushButton("Lever Bras G.")
@@ -283,10 +314,25 @@ class MainWindow(QMainWindow):
 		self.btn_bras_droit_down.clicked.connect(self.controller.baisser_bras_droit)
 		self.btn_bras_droit_down.setEnabled(False)
 
+		self.btn_yeux_faches = QPushButton("Yeux Fâchés")
+		self.btn_yeux_faches.clicked.connect(lambda checked: self.controller.bouger_yeux("angry"))
+		self.btn_yeux_faches.setEnabled(False)
+
+		self.btn_yeux_surpris = QPushButton("Yeux Surpris")
+		self.btn_yeux_surpris.clicked.connect(lambda checked: self.controller.bouger_yeux("excited"))
+		self.btn_yeux_surpris.setEnabled(False)
+
+		self.btn_yeux_wiggle = QPushButton("Wiggle (Yeux)")
+		self.btn_yeux_wiggle.clicked.connect(lambda checked: self.controller.bouger_yeux("wiggle"))
+		self.btn_yeux_wiggle.setEnabled(False)
+
 		arms_layout.addWidget(self.btn_bras_gauche_up, 0, 0)
 		arms_layout.addWidget(self.btn_bras_gauche_down, 0, 1)
 		arms_layout.addWidget(self.btn_bras_droit_up, 1, 0)
 		arms_layout.addWidget(self.btn_bras_droit_down, 1, 1)
+		arms_layout.addWidget(self.btn_yeux_faches, 2, 0)
+		arms_layout.addWidget(self.btn_yeux_surpris, 2, 1)
+		arms_layout.addWidget(self.btn_yeux_wiggle, 3, 0, 1, 2)
 		arms_group.setLayout(arms_layout)
 
 		calibration_group = QGroupBox("Calibrer le capteur couleur")
@@ -326,8 +372,9 @@ class MainWindow(QMainWindow):
 		if connected:
 			self.status_label.setText(f"Statut : Connecté ({self.controller.method} - {self.controller.address}) !")
 			buttons = [
-				self.btn_walk, self.btn_left, self.btn_test, self.btn_right, self.btn_backward, self.btn_rgb, self.btn_calibrate,
-				self.btn_bras_gauche_up, self.btn_bras_gauche_down, self.btn_bras_droit_up, self.btn_bras_droit_down
+				self.btn_walk, self.btn_left, self.btn_test, self.btn_right, self.btn_backward, self.btn_rgb, self.btn_calibrate, self.btn_battery,
+				self.btn_bras_gauche_up, self.btn_bras_gauche_down, self.btn_bras_droit_up, self.btn_bras_droit_down,
+				self.btn_yeux_faches, self.btn_yeux_surpris, self.btn_yeux_wiggle
 			]
 			for btn in buttons:
 				btn.setEnabled(True)
@@ -344,6 +391,7 @@ class MainWindow(QMainWindow):
 	def backward_marty(self): self.controller.reculer()
 	def lire_capteur_rgb(self): self.controller.lire_rgb()
 	def calibrer_couleur(self): self.controller.calibrer_couleur(self.color_combo.currentText(), self.color_sensor)
+	def lire_batterie(self): self.controller.lire_batterie()
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
