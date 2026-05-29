@@ -3,7 +3,7 @@ import signal
 import json
 import math
 import os
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox, QFileDialog, QProgressBar)
 from PyQt5.QtCore import QObject, pyqtSignal
 import martypy
 
@@ -49,6 +49,7 @@ class ColorSensor:
 class ControllerSignals(QObject):
 	log_message = pyqtSignal(str)
 	connection_status = pyqtSignal(bool)
+	dance_progress = pyqtSignal(int, int)
 
 class MockMarty:
 	def __init__(self, signals: ControllerSignals):
@@ -179,23 +180,38 @@ class MartyController:
 
 class DanceParser:
 	def parse(self, filepath: str) -> list:
-		print(f"Lecture de la chorégraphie : {filepath}")
-		return []
+		"""Lit le fichier .dance et retourne une liste de mouvements."""
+		movements = []
+		try:
+			with open(filepath, "r") as f:
+				for line in f:
+					line = line.strip()
+					if line and not line.startswith("#"):
+						movements.append(line)
+		except Exception as e:
+			print(f"Erreur lors du parsing : {e}")
+		return movements
 
 class ChoreographyPlayer:
 	def __init__(self, controller: MartyController):
 		self.controller = controller
 
 	def play(self, sequence: list):
-		print(f"Lancement de la chorégraphie ({len(sequence)} mouvements)")
+		total = len(sequence)
+		self.controller.signals.log_message.emit(f"Lancement de la chorégraphie ({total} mouvements)...")
+		for i, _ in enumerate(sequence):
+			# Met à jour la barre de progression (index + 1 pour commencer à 1)
+			self.controller.signals.dance_progress.emit(i + 1, total)
+			QApplication.processEvents() # Force la mise à jour visuelle de l'UI
 
 class ArbitreAPIClient:
-	def __init__(self, base_url="http://localhost:8000"):
+	def __init__(self, signals: ControllerSignals, base_url="http://localhost:8000"):
 		self.base_url = base_url
+		self.signals = signals
 
 	def send_movement(self, action_type: str, color: str = None):
 		payload = {"action_type": action_type, "color_detected": color}
-		print(f"Envoi de l'action à l'arbitre : {payload}")
+		self.signals.log_message.emit(f"[API] Envoi à l'arbitre : {action_type} ({color or 'N/A'})")
 
 class MainWindow(QMainWindow):
 	def __init__(self):
@@ -204,13 +220,14 @@ class MainWindow(QMainWindow):
 		self.resize(900, 700)
         
 		self.controller = MartyController(address="192.168.0.100")
-		self.api_client = ArbitreAPIClient()
+		self.api_client = ArbitreAPIClient(self.controller.signals)
 		self.parser = DanceParser()
 		self.player = ChoreographyPlayer(self.controller)
 		self.color_sensor = ColorSensor()
         
 		self.controller.signals.log_message.connect(self.update_log)
 		self.controller.signals.connection_status.connect(self.on_connection_status_changed)
+		self.controller.signals.dance_progress.connect(self.update_dance_progress)
 
 		self.init_ui()
 
@@ -299,11 +316,25 @@ class MainWindow(QMainWindow):
 		self.btn_calibrate.setEnabled(False)
 		calibration_layout.addWidget(self.btn_calibrate)
 		calibration_group.setLayout(calibration_layout)
+		
+		dance_group = QGroupBox("Chorégraphie")
+		dance_layout = QVBoxLayout()
+		self.btn_load_dance = QPushButton("Charger .dance")
+		self.btn_load_dance.clicked.connect(self.load_dance_file)
+		self.btn_play_dance = QPushButton("Jouer la séquence")
+		self.btn_play_dance.clicked.connect(self.play_dance)
+		self.btn_play_dance.setEnabled(False)
+		dance_layout.addWidget(self.btn_load_dance)
+		dance_layout.addWidget(self.btn_play_dance)
+		dance_group.setLayout(dance_layout)
+		
+		self.loaded_sequence = []
 
 		left_panel_layout.addWidget(connection_group)
 		left_panel_layout.addWidget(manual_controls_group)
 		left_panel_layout.addWidget(arms_group)
 		left_panel_layout.addWidget(calibration_group)
+		left_panel_layout.addWidget(dance_group)
 		left_panel_layout.addStretch()
 
 		right_panel_layout = QVBoxLayout()
@@ -336,7 +367,28 @@ class MainWindow(QMainWindow):
 			self.status_label.setText("Statut : Échec de la connexion.")
 			self.btn_connect.setEnabled(True)
 
+	def load_dance_file(self):
+		options = QFileDialog.Options()
+		fileName, _ = QFileDialog.getOpenFileName(self, "Ouvrir un fichier de chorégraphie", "", "Dance Files (*.dance);;All Files (*)", options=options)
+		if fileName:
+			self.loaded_sequence = self.parser.parse(fileName)
+			self.update_log(f"Chargé : {os.path.basename(fileName)} ({len(self.loaded_sequence)} commandes)")
+			self.btn_play_dance.setEnabled(len(self.loaded_sequence) > 0)
+			self.dance_progress_bar.setValue(0)
+
+	def play_dance(self):
+		if self.loaded_sequence:
+			self.player.play(self.loaded_sequence)
+			# Simulation d'envoi à l'arbitre pour le premier mouvement
+			if self.loaded_sequence:
+				self.api_client.send_movement(self.loaded_sequence[0], "blue")
+
 	def update_log(self, message: str): self.log_console.append(message)
+
+	def update_dance_progress(self, current, total):
+		self.dance_progress_bar.setMaximum(total)
+		self.dance_progress_bar.setValue(current)
+
 	def walk_marty(self): self.controller.avancer()
 	def left_marty(self): self.controller.tourner_gauche()
 	def test_marty(self): self.controller.test_mouvement()
