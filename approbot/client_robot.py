@@ -4,11 +4,11 @@ import json
 import math
 import os, requests
 import time
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox, QLineEdit, QFileDialog, QProgressBar)
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox, QLineEdit, QFileDialog, QProgressBar, QDialog)
 from PyQt5.QtCore import QObject, pyqtSignal
 import martypy
 
-CALIBRATION_FILE = "calibration.json"
+CALIBRATION_FILE = "calibration_couleurs.json"
 
 class ColorSensor:
 	DEFAULT_COLORS = {
@@ -270,6 +270,75 @@ class ArbitreAPIClient:
 		except Exception as e:
 			self.signals.log_message.emit(f"[API] Erreur inattendue lors de l'envoi à l'arbitre : {e}")
 
+class CalibrationDialog(QDialog):
+	COLORS = [
+		("ROUGE", "red"),
+		("VERT",  "green"),
+		("BLEU",  "blue"),
+		("JAUNE", "yellow"),
+		("NOIR",  "black"),
+		("BLANC", "white"),
+	]
+
+	def __init__(self, controller: MartyController, color_sensor: ColorSensor, parent=None):
+		super().__init__(parent)
+		self.controller = controller
+		self.color_sensor = color_sensor
+		self.rgb_data = {key: list(color_sensor.calibration.get(key, [0, 0, 0])) for _, key in self.COLORS}
+		self._rgb_labels = {}
+		self.setWindowTitle("Calibration du capteur couleur")
+		self.setMinimumWidth(480)
+		self._init_ui()
+
+	def _init_ui(self):
+		layout = QVBoxLayout(self)
+		grid = QGridLayout()
+		grid.addWidget(QLabel("Couleur"), 0, 0)
+		grid.addWidget(QLabel("R"), 0, 1)
+		grid.addWidget(QLabel("G"), 0, 2)
+		grid.addWidget(QLabel("B"), 0, 3)
+		for row, (display_name, key) in enumerate(self.COLORS, start=1):
+			r, g, b = self.rgb_data[key]
+			lbl_r = QLabel(str(r))
+			lbl_g = QLabel(str(g))
+			lbl_b = QLabel(str(b))
+			btn_read = QPushButton("Lire")
+			btn_read.clicked.connect(lambda _, k=key: self._lire(k))
+			self._rgb_labels[key] = (lbl_r, lbl_g, lbl_b)
+			grid.addWidget(QLabel(display_name), row, 0)
+			grid.addWidget(lbl_r, row, 1)
+			grid.addWidget(lbl_g, row, 2)
+			grid.addWidget(lbl_b, row, 3)
+			grid.addWidget(btn_read, row, 4)
+		layout.addLayout(grid)
+		self._status_label = QLabel("")
+		layout.addWidget(self._status_label)
+		btn_row = QHBoxLayout()
+		btn_save = QPushButton("Sauvegarder")
+		btn_save.clicked.connect(self._sauvegarder)
+		btn_close = QPushButton("Fermer")
+		btn_close.clicked.connect(self.accept)
+		btn_row.addWidget(btn_save)
+		btn_row.addWidget(btn_close)
+		layout.addLayout(btn_row)
+
+	def _lire(self, key: str):
+		rgb = self.controller.lire_rgb()
+		if rgb is None:
+			return
+		r, g, b = rgb
+		self.rgb_data[key] = [r, g, b]
+		lbl_r, lbl_g, lbl_b = self._rgb_labels[key]
+		lbl_r.setText(str(r))
+		lbl_g.setText(str(g))
+		lbl_b.setText(str(b))
+
+	def _sauvegarder(self):
+		self.color_sensor.calibration = dict(self.rgb_data)
+		self.color_sensor._save()
+		self._status_label.setText("Calibration sauvegardée dans calibration_couleurs.json.")
+
+
 class MainWindow(QMainWindow):
 	def __init__(self):
 		super().__init__()
@@ -419,6 +488,10 @@ class MainWindow(QMainWindow):
 		self.btn_calibrate.clicked.connect(self.calibrer_couleur)
 		self.btn_calibrate.setEnabled(False)
 		calibration_layout.addWidget(self.btn_calibrate)
+		self.btn_calibration_dialog = QPushButton("Calibrer les 6 couleurs…")
+		self.btn_calibration_dialog.clicked.connect(self.ouvrir_calibration)
+		self.btn_calibration_dialog.setEnabled(False)
+		calibration_layout.addWidget(self.btn_calibration_dialog)
 		calibration_group.setLayout(calibration_layout)
 
 		dance_group = QGroupBox("Chorégraphie")
@@ -475,7 +548,7 @@ class MainWindow(QMainWindow):
 		if connected:
 			self.status_label.setText(f"Statut : Connecté ({self.controller.method} - {self.controller.address}) !")
 			buttons = [
-				self.btn_walk, self.btn_left, self.btn_test, self.btn_right, self.btn_backward, self.btn_rgb, self.btn_calibrate, self.btn_battery,
+				self.btn_walk, self.btn_left, self.btn_test, self.btn_right, self.btn_backward, self.btn_rgb, self.btn_calibrate, self.btn_calibration_dialog, self.btn_battery,
 				self.btn_bras_gauche_up, self.btn_bras_gauche_down, self.btn_bras_droit_up, self.btn_bras_droit_down,
 				self.btn_yeux_faches, self.btn_yeux_surpris, self.btn_yeux_wiggle,
 				self.btn_load_dance, self.btn_play_dance
@@ -524,6 +597,8 @@ class MainWindow(QMainWindow):
 	def backward_marty(self): self.controller.reculer()
 	def lire_capteur_rgb(self): self.controller.lire_rgb()
 	def calibrer_couleur(self): self.controller.calibrer_couleur(self.color_combo.currentText(), self.color_sensor)
+	def ouvrir_calibration(self):
+		CalibrationDialog(self.controller, self.color_sensor, self).exec_()
 	def lire_batterie(self): self.controller.lire_batterie()
 
 if __name__ == "__main__":
