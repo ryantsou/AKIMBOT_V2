@@ -189,10 +189,8 @@ class ArbitreWindow(QMainWindow):
         left_group = QGroupBox("Robots Connectés & Scores")
         left_layout = QVBoxLayout()
 
-        self.current_score_label = QLabel("Score en temps réel : aucun mouvement reçu")
-        self.current_score_label.setStyleSheet("font-weight: bold; margin-bottom: 8px;")
+        self.current_score_label = QLabel("Score en temps réel : ")
         self.total_score_label = QLabel("Score total : 0")
-        self.total_score_label.setStyleSheet("margin-bottom: 12px;")
 
         self.robots_table = QTableWidget(0, 2)
         self.robots_table.setHorizontalHeaderLabels(["Robot", "Score"])
