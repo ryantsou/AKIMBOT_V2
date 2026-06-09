@@ -74,6 +74,9 @@ class MockMarty:
 	def eyes(self, pose_or_angle, **kwargs):
 		self.signals.log_message.emit(f"[MOCK] eyes({pose_or_angle})")
 
+	def set_color(self, r: int, g: int, b: int):
+		self.signals.log_message.emit(f"[MOCK] set_color(r={r}, g={g}, b={b})")
+
 	def get_color_sensor_value_by_channel(self, add_on_name: str, channel_index: int) -> int:
 		mock_rgb = {0: 180, 1: 30, 2: 25}
 		return mock_rgb.get(channel_index, 0)
@@ -258,6 +261,30 @@ class MartyController:
 		r, g, b = rgb
 		color_sensor.calibrer(couleur, r, g, b)
 		self.signals.log_message.emit(f"Calibration '{couleur}' enregistrée — R:{r}  G:{g}  B:{b}")
+
+	def emotion_celebrer(self):
+		if self.connected and self.marty:
+			self.marty.set_color(255, 215, 0)
+			self.marty.celebrate()
+			self.signals.log_message.emit("Émotion : Célébration (LED or) !")
+		else:
+			self.signals.log_message.emit("Marty non connecté.")
+
+	def emotion_bras_ouverts(self):
+		if self.connected and self.marty:
+			self.marty.set_color(0, 0, 255)
+			self.marty.arms(left_angle=100, right_angle=-100)
+			self.signals.log_message.emit("Émotion : Bras ouverts (LED bleu) !")
+		else:
+			self.signals.log_message.emit("Marty non connecté.")
+
+	def emotion_yeux_wiggle(self):
+		if self.connected and self.marty:
+			self.marty.set_color(200, 0, 200)
+			self.marty.eyes("wiggle")
+			self.signals.log_message.emit("Émotion : Yeux wiggle (LED violet) !")
+		else:
+			self.signals.log_message.emit("Marty non connecté.")
 
 class DanceParser:
 	def parse(self, filepath: str) -> list:
@@ -565,6 +592,28 @@ class MainWindow(QMainWindow):
 		left_panel_layout.addWidget(telemetry_group)
 		left_panel_layout.addWidget(manual_controls_group)
 		left_panel_layout.addWidget(arms_group)
+
+		emotions_group = QGroupBox("Émotions")
+		emotions_layout = QVBoxLayout()
+
+		self.btn_emotion_celebrer = QPushButton("Célébration (LED or)")
+		self.btn_emotion_celebrer.clicked.connect(self.controller.emotion_celebrer)
+		self.btn_emotion_celebrer.setEnabled(False)
+
+		self.btn_emotion_bras = QPushButton("Bras ouverts (LED bleu)")
+		self.btn_emotion_bras.clicked.connect(self.controller.emotion_bras_ouverts)
+		self.btn_emotion_bras.setEnabled(False)
+
+		self.btn_emotion_wiggle = QPushButton("Yeux wiggle (LED violet)")
+		self.btn_emotion_wiggle.clicked.connect(self.controller.emotion_yeux_wiggle)
+		self.btn_emotion_wiggle.setEnabled(False)
+
+		emotions_layout.addWidget(self.btn_emotion_celebrer)
+		emotions_layout.addWidget(self.btn_emotion_bras)
+		emotions_layout.addWidget(self.btn_emotion_wiggle)
+		emotions_group.setLayout(emotions_layout)
+
+		left_panel_layout.addWidget(emotions_group)
 		left_panel_layout.addWidget(calibration_group)
 		left_panel_layout.addWidget(dance_group)
 		left_panel_layout.addStretch()
@@ -603,6 +652,7 @@ class MainWindow(QMainWindow):
 				self.sensor_source_combo,
 				self.btn_bras_gauche_up, self.btn_bras_gauche_down, self.btn_bras_droit_up, self.btn_bras_droit_down,
 				self.btn_yeux_faches, self.btn_yeux_surpris, self.btn_yeux_wiggle,
+				self.btn_emotion_celebrer, self.btn_emotion_bras, self.btn_emotion_wiggle,
 				self.btn_load_dance, self.btn_play_dance
 			]
 			for btn in buttons:
