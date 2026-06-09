@@ -318,6 +318,25 @@ class DanceParser:
 			print(f"Erreur lecture .dance: {e}")
 		return sequence, act_mapping
 
+class BattleParser:
+	def parse(self, filepath: str) -> int:
+		mvs_max = None
+		try:
+			with open(filepath, "r", encoding="utf-8") as f:
+				for raw in f:
+					line = raw.strip()
+					if not line or line.startswith("#"):
+						continue
+					parts = line.split()
+					if len(parts) == 2 and parts[0].upper() == "MVS":
+						try:
+							mvs_max = int(parts[1])
+						except ValueError:
+							pass
+		except Exception as e:
+			print(f"Erreur lecture .battle: {e}")
+		return mvs_max
+
 class ChoreographyPlayer:
 	def __init__(self, controller: MartyController, api_client: 'ArbitreAPIClient'):
 		self.controller = controller
@@ -434,10 +453,12 @@ class MainWindow(QMainWindow):
 		self.controller = MartyController(address="192.168.0.100")
 		self.api_client = ArbitreAPIClient(self.controller.signals)
 		self.parser = DanceParser()
+		self.battle_parser = BattleParser()
 		self.player = ChoreographyPlayer(self.controller, self.api_client)
 		self.color_sensor = ColorSensor()
 		self.current_sequence = []
 		self.act_mapping = {}
+		self.mvs_max = None
 		
 		self.act_timer = QTimer()
 		self.act_timer.timeout.connect(self.process_act_loop)
@@ -595,13 +616,18 @@ class MainWindow(QMainWindow):
 
 		dance_group = QGroupBox("Chorégraphie")
 		dance_layout = QVBoxLayout()
+
+		self.btn_load_battle = QPushButton("Charger .battle (règles)")
+		self.btn_load_battle.clicked.connect(self.load_battle_file)
+
 		self.btn_load_dance = QPushButton("Charger .dance")
 		self.btn_load_dance.clicked.connect(self.load_dance_file)
 		self.btn_load_dance.setEnabled(False)
+
 		self.btn_play_dance = QPushButton("Jouer la séquence")
 		self.btn_play_dance.clicked.connect(self.play_dance)
 		self.btn_play_dance.setEnabled(False)
-		
+
 		self.btn_toggle_act = QPushButton("Démarrer Mode Automatique (ACT)")
 		self.btn_toggle_act.clicked.connect(self.toggle_act_mode)
 		self.btn_toggle_act.setEnabled(False)
@@ -610,10 +636,16 @@ class MainWindow(QMainWindow):
 		self.progress_bar = QProgressBar()
 		self.progress_bar.setRange(0, 100)
 		self.progress_bar.setValue(0)
+
+		self.mvs_warning_label = QLabel("")
+		self.mvs_warning_label.setStyleSheet("color: red; font-weight: bold;")
+
+		dance_layout.addWidget(self.btn_load_battle)
 		dance_layout.addWidget(self.btn_load_dance)
 		dance_layout.addWidget(self.btn_play_dance)
 		dance_layout.addWidget(self.btn_toggle_act)
 		dance_layout.addWidget(self.progress_bar)
+		dance_layout.addWidget(self.mvs_warning_label)
 		dance_group.setLayout(dance_layout)
 
 		left_panel_layout.addWidget(connection_group)
@@ -656,12 +688,6 @@ class MainWindow(QMainWindow):
 		main_layout.addLayout(right_panel_layout, 2)
 
 		self.setCentralWidget(main_widget)
-
-	def update_log(self, message: str):
-		self.log_console.append(message)
-
-	def update_log(self, message: str):
-		self.log_console.append(message)
 
 	def on_method_changed(self, text):
 		if text == "mock":
@@ -734,13 +760,31 @@ class MainWindow(QMainWindow):
 							time.sleep(0.2) # Temps de pause entre les mouvements automatiques
 						return 
 
+	def load_battle_file(self):
+		fileName, _ = QFileDialog.getOpenFileName(self, "Charger un fichier de règles", "", "Battle Files (*.battle);;All Files (*)")
+		if not fileName:
+			return
+		self.mvs_max = self.battle_parser.parse(fileName)
+		if self.mvs_max is not None:
+			self.update_log(f"Règles chargées : {os.path.basename(fileName)} — MVS_MAX = {self.mvs_max}")
+		else:
+			self.update_log(f"[AVERTISSEMENT] Aucune directive MVS trouvée dans {os.path.basename(fileName)}.")
+		self.mvs_warning_label.setText("")
+
 	def load_dance_file(self):
 		fileName, _ = QFileDialog.getOpenFileName(self, "Ouvrir un fichier de chorégraphie", "", "Dance Files (*.dance);;All Files (*)")
-		if fileName:
-			self.current_sequence, self.act_mapping = self.parser.parse(fileName)
-			self.update_log(f"Chargé : {os.path.basename(fileName)} ({len(self.current_sequence)} pas, {len(self.act_mapping)} règles ACT)")
-			self.btn_play_dance.setEnabled(len(self.current_sequence) > 0 and self.controller.connected)
-			self.progress_bar.setValue(0)
+		if not fileName:
+			return
+		self.current_sequence, self.act_mapping = self.parser.parse(fileName)
+		n = len(self.current_sequence)
+		self.update_log(f"Chargé : {os.path.basename(fileName)} ({n} pas, {len(self.act_mapping)} règles ACT)")
+		if self.mvs_max is not None and n > self.mvs_max:
+			self.update_log(f"[AVERTISSEMENT] {n} mouvements dépassent le maximum autorisé ({self.mvs_max}).")
+			self.mvs_warning_label.setText(f"Trop de mouvements : {n} / {self.mvs_max} max")
+		else:
+			self.mvs_warning_label.setText("")
+		self.btn_play_dance.setEnabled(n > 0 and self.controller.connected)
+		self.progress_bar.setValue(0)
 
 	def play_dance(self):
 		if not self.current_sequence:
