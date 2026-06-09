@@ -222,35 +222,57 @@ class MartyController:
 		self.signals.log_message.emit(f"Calibration '{couleur}' enregistrée — R:{r}  G:{g}  B:{b}")
 
 class DanceParser:
+	_CMDS = {"U", "D", "L", "R", "T"}
+
 	def parse(self, filepath: str) -> list:
-		print(f"Lecture de la chorégraphie : {filepath}")
-		sequence = []
+		steps = []
 		try:
 			with open(filepath, "r", encoding="utf-8") as f:
-				for line in f:
-					line = line.strip()
+				for raw in f:
+					line = raw.strip()
 					if not line or line.startswith("#"):
 						continue
-					sequence.append(line)
+					if not line.upper().startswith("SEQ"):
+						continue
+					for token in line[3:].split():
+						if "=" not in token:
+							continue
+						cmd, _, n_str = token.partition("=")
+						cmd = cmd.upper()
+						if cmd not in self._CMDS:
+							continue
+						try:
+							steps.append((cmd, int(n_str)))
+						except ValueError:
+							continue
 		except Exception as e:
 			print(f"Erreur lecture .dance: {e}")
-		return sequence
+		return steps
+
 
 class ChoreographyPlayer:
+	_ACTIONS = {
+		"U": lambda m, n: m.walk(num_steps=n, turn=0),
+		"D": lambda m, n: m.walk(num_steps=n, step_length=-25, turn=0),
+		"L": lambda m, n: m.turn(num_steps=n, turn=25),
+		"R": lambda m, n: m.turn(num_steps=n, turn=-25),
+		"T": lambda m, n: m.turn(num_steps=n, turn=100),
+	}
+
 	def __init__(self, controller: MartyController, api_client: 'ArbitreAPIClient'):
 		self.controller = controller
 		self.api_client = api_client
 
-	def play(self, sequence: list, progress_callback=None):
-		"""Joue la séquence et informe l'arbitre de chaque mouvement pour mettre à jour le score."""
-		total = len(sequence)
-		self.controller.signals.log_message.emit(f"Lancement de la chorégraphie ({total} mouvements)...")
-		for idx, action in enumerate(sequence, start=1):
-			self.controller.signals.log_message.emit(f"Exécution action {idx}/{total}: {action}")
-			self.api_client.send_movement(action) # Envoi à l'arbitre
-			time.sleep(0.5)
+	def play(self, steps: list):
+		total = len(steps)
+		self.controller.signals.log_message.emit(f"Chorégraphie : {total} étapes.")
+		for idx, (cmd, n) in enumerate(steps, start=1):
+			self.controller.signals.log_message.emit(f"[{idx}/{total}] {cmd}={n}")
+			if self.controller.marty and cmd in self._ACTIONS:
+				self._ACTIONS[cmd](self.controller.marty, n)
+			self.api_client.send_movement(cmd, robot_id="marty_01")
 			self.controller.signals.dance_progress.emit(idx, total)
-			QApplication.processEvents() # Ensure UI updates
+			QApplication.processEvents()
 
 class ArbitreAPIClient:
 	def __init__(self, signals: ControllerSignals, base_url="http://localhost:8000"):
@@ -505,7 +527,7 @@ class MainWindow(QMainWindow):
 		dance_layout = QVBoxLayout()
 		self.btn_load_dance = QPushButton("Charger .dance")
 		self.btn_load_dance.clicked.connect(self.load_dance_file)
-		self.btn_load_dance.setEnabled(False)
+		self.dance_info_label = QLabel("Aucun fichier chargé.")
 		self.btn_play_dance = QPushButton("Jouer la séquence")
 		self.btn_play_dance.clicked.connect(self.play_dance)
 		self.btn_play_dance.setEnabled(False)
@@ -513,6 +535,7 @@ class MainWindow(QMainWindow):
 		self.progress_bar.setRange(0, 100)
 		self.progress_bar.setValue(0)
 		dance_layout.addWidget(self.btn_load_dance)
+		dance_layout.addWidget(self.dance_info_label)
 		dance_layout.addWidget(self.btn_play_dance)
 		dance_layout.addWidget(self.progress_bar)
 		dance_group.setLayout(dance_layout)
@@ -558,7 +581,7 @@ class MainWindow(QMainWindow):
 				self.btn_walk, self.btn_left, self.btn_test, self.btn_right, self.btn_backward, self.btn_rgb, self.btn_calibrate, self.btn_calibration_dialog, self.btn_battery,
 				self.btn_bras_gauche_up, self.btn_bras_gauche_down, self.btn_bras_droit_up, self.btn_bras_droit_down,
 				self.btn_yeux_faches, self.btn_yeux_surpris, self.btn_yeux_wiggle,
-				self.btn_load_dance, self.btn_play_dance
+				self.btn_play_dance
 			]
 			for btn in buttons:
 				btn.setEnabled(True)
@@ -568,12 +591,15 @@ class MainWindow(QMainWindow):
 			self.btn_connect.setEnabled(True)
 
 	def load_dance_file(self):
-		fileName, _ = QFileDialog.getOpenFileName(self, "Ouvrir un fichier de chorégraphie", "", "Dance Files (*.dance);;All Files (*)")
-		if fileName:
-			self.current_sequence = self.parser.parse(fileName)
-			self.update_log(f"Chargé : {os.path.basename(fileName)} ({len(self.current_sequence)} commandes)")
-			self.btn_play_dance.setEnabled(len(self.current_sequence) > 0 and self.controller.connected)
-			self.progress_bar.setValue(0)
+		fileName, _ = QFileDialog.getOpenFileName(self, "Charger un fichier .dance", "", "Dance Files (*.dance);;All Files (*)")
+		if not fileName:
+			return
+		self.current_sequence = self.parser.parse(fileName)
+		n = len(self.current_sequence)
+		self.dance_info_label.setText(f"{os.path.basename(fileName)} — {n} étape(s)")
+		self.update_log(f"Chargé : {os.path.basename(fileName)} ({n} étapes)")
+		self.btn_play_dance.setEnabled(n > 0 and self.controller.connected)
+		self.progress_bar.setValue(0)
 
 	def play_dance(self):
 		if not self.current_sequence:
