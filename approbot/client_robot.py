@@ -759,6 +759,9 @@ class MainWindow(QMainWindow):
 	def update_score_ui(self, score: int):
 		self.score_label.setText(f"Score : {score}")
 
+	def update_log(self, message: str):
+		self.log_console.append(message)
+
 	def lire_capteur_rgb(self):
 		source = self.sensor_source_combo.currentText()
 		if source == "Pied droit":
