@@ -5,7 +5,7 @@ import math
 import os, requests
 import time
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox, QLineEdit, QFileDialog, QProgressBar, QDialog)
-from PyQt5.QtCore import QObject, pyqtSignal
+from PyQt5.QtCore import QObject, pyqtSignal, QTimer
 import martypy
 
 CALIBRATION_FILE = "calibration_couleurs.json"
@@ -255,7 +255,7 @@ class MartyController:
 			return None
 
 	def calibrer_couleur(self, couleur: str, color_sensor: ColorSensor):
-		rgb = self.lire_rgb()
+		rgb = self.lire_rgb(source="color") or self.lire_rgb(source="foot", foot="left") or self.lire_rgb(source="foot", foot="right")
 		if rgb is None:
 			return
 		r, g, b = rgb
@@ -289,31 +289,41 @@ class MartyController:
 class DanceParser:
 	_CMDS = {"U", "D", "L", "R", "T"}
 
-	def parse(self, filepath: str) -> list:
+	def parse(self, filepath: str) -> tuple:
 		steps = []
+		act_mapping = {}
+		current_section = "SEQUENCE"
 		try:
 			with open(filepath, "r", encoding="utf-8") as f:
 				for raw in f:
 					line = raw.strip()
-					if not line or line.startswith("#"):
+					if not line or line.startswith("#") or line.startswith("//"):
 						continue
-					if not line.upper().startswith("SEQ"):
+					if line.upper() == "[SEQUENCE]":
+						current_section = "SEQUENCE"
 						continue
-					for token in line[3:].split():
-						if "=" not in token:
-							continue
-						cmd, _, n_str = token.partition("=")
-						cmd = cmd.upper()
-						if cmd not in self._CMDS:
-							continue
-						try:
-							steps.append((cmd, int(n_str)))
-						except ValueError:
-							continue
+					elif line.upper() == "[ACT]":
+						current_section = "ACT"
+						continue
+					if current_section == "ACT" and ":" in line:
+						color, actions_raw = line.split(":", 1)
+						actions = [a.strip() for a in actions_raw.split(",") if a.strip()]
+						act_mapping[color.strip().lower()] = actions
+					elif current_section == "SEQUENCE" and line.upper().startswith("SEQ"):
+						for token in line[3:].split():
+							if "=" not in token:
+								continue
+							cmd, _, n_str = token.partition("=")
+							cmd = cmd.upper()
+							if cmd not in self._CMDS:
+								continue
+							try:
+								steps.append((cmd, int(n_str)))
+							except ValueError:
+								continue
 		except Exception as e:
 			print(f"Erreur lecture .dance: {e}")
-		return steps
-
+		return steps, act_mapping
 
 class ChoreographyPlayer:
 	_ACTIONS = {
@@ -345,9 +355,9 @@ class ArbitreAPIClient:
 		self.base_url = base_url
 		self.signals = signals
 
-	def send_movement(self, action_type: str, color: str = None, robot_id: str = "marty_01"):
+	def send_movement(self, action_type: str, color: str = "unknown", robot_id: str = "marty_01"):
 		payload = {"action_type": action_type, "color_detected": color}
-		self.signals.log_message.emit(f"[API] Envoi à l'arbitre : {action_type} ({color or 'N/A'})")
+		self.signals.log_message.emit(f"[API] Envoi : {action_type} (Couleur: {color})")
 		try:
 			response = requests.post(f"{self.base_url}/api/mouvements?robot_id={robot_id}", json=payload, timeout=5)
 			response.raise_for_status() # Lève une exception pour les codes d'erreur HTTP
@@ -443,6 +453,10 @@ class MainWindow(QMainWindow):
 		self.player = ChoreographyPlayer(self.controller, self.api_client)
 		self.color_sensor = ColorSensor()
 		self.current_sequence = []
+		self.act_mapping = {}
+		
+		self.act_timer = QTimer()
+		self.act_timer.timeout.connect(self.process_act_loop)
         
 		self.controller.signals.log_message.connect(self.update_log)
 		self.controller.signals.connection_status.connect(self.on_connection_status_changed)
@@ -603,12 +617,19 @@ class MainWindow(QMainWindow):
 		self.btn_play_dance = QPushButton("Jouer la séquence")
 		self.btn_play_dance.clicked.connect(self.play_dance)
 		self.btn_play_dance.setEnabled(False)
+		
+		self.btn_toggle_act = QPushButton("Démarrer Mode Automatique (ACT)")
+		self.btn_toggle_act.clicked.connect(self.toggle_act_mode)
+		self.btn_toggle_act.setEnabled(False)
+		self.btn_toggle_act.setStyleSheet("background-color: #d5f5e3;")
+
 		self.progress_bar = QProgressBar()
 		self.progress_bar.setRange(0, 100)
 		self.progress_bar.setValue(0)
 		dance_layout.addWidget(self.btn_load_dance)
 		dance_layout.addWidget(self.dance_info_label)
 		dance_layout.addWidget(self.btn_play_dance)
+		dance_layout.addWidget(self.btn_toggle_act)
 		dance_layout.addWidget(self.progress_bar)
 		dance_group.setLayout(dance_layout)
 
@@ -653,6 +674,12 @@ class MainWindow(QMainWindow):
 
 		self.setCentralWidget(main_widget)
 
+	def update_log(self, message: str):
+		self.log_console.append(message)
+
+	def update_log(self, message: str):
+		self.log_console.append(message)
+
 	def on_method_changed(self, text):
 		if text == "mock":
 			self.address_input.setText("mock")
@@ -677,7 +704,7 @@ class MainWindow(QMainWindow):
 				self.btn_bras_gauche_up, self.btn_bras_gauche_down, self.btn_bras_droit_up, self.btn_bras_droit_down,
 				self.btn_yeux_faches, self.btn_yeux_surpris, self.btn_yeux_wiggle,
 				self.btn_emotion_celebrer, self.btn_emotion_bras, self.btn_emotion_wiggle,
-				self.btn_load_dance, self.btn_play_dance
+				self.btn_load_dance, self.btn_play_dance, self.btn_toggle_act
 			]
 			for btn in buttons:
 				btn.setEnabled(True)
@@ -686,14 +713,52 @@ class MainWindow(QMainWindow):
 			self.status_label.setText("Statut : Échec de la connexion.")
 			self.btn_connect.setEnabled(True)
 
+	def toggle_act_mode(self):
+		if self.act_timer.isActive():
+			self.act_timer.stop()
+			self.btn_toggle_act.setText("Démarrer Mode Automatique (ACT)")
+			self.btn_toggle_act.setStyleSheet("background-color: #d5f5e3;")
+			self.update_log("Mode ACT arrêté.")
+		else:
+			if not self.act_mapping:
+				self.update_log("Erreur : Aucune section [ACT] trouvée dans le fichier .dance chargé.")
+				return
+			self.act_timer.start(1000) # Scan toutes les secondes
+			self.btn_toggle_act.setText("ARRÊTER Mode Automatique")
+			self.btn_toggle_act.setStyleSheet("background-color: #fadbd8;")
+			self.update_log("Mode ACT démarré : surveillance du capteur couleur...")
+
+	def process_act_loop(self):
+		"""Boucle ACT : Vérifie les capteurs sous les pieds"""
+		sensors_to_check = [
+			("foot", "left", "Pied Gauche"),
+			("foot", "right", "Pied Droit"),
+			("color", "", "Capteur Add-on")
+		]
+		
+		for source, foot, name in sensors_to_check:
+			rgb = self.controller.lire_rgb(source=source, foot=foot)
+			if rgb:
+				color_name = self.color_sensor.identifier(*rgb)
+				if color_name != "unknown":
+					actions = self.act_mapping.get(color_name)
+					if actions:
+						self.update_log(f"[ACT] {name} a vu {color_name.upper()} -> Actions : {', '.join(actions)}")
+						for action in actions:
+							if hasattr(self.controller, action):
+								getattr(self.controller, action)()
+								self.api_client.send_movement(action, color=color_name)
+							time.sleep(0.2) # Temps de pause entre les mouvements automatiques
+						return 
+
 	def load_dance_file(self):
 		fileName, _ = QFileDialog.getOpenFileName(self, "Charger un fichier .dance", "", "Dance Files (*.dance);;All Files (*)")
 		if not fileName:
 			return
-		self.current_sequence = self.parser.parse(fileName)
+		self.current_sequence, self.act_mapping = self.parser.parse(fileName)
 		n = len(self.current_sequence)
 		self.dance_info_label.setText(f"{os.path.basename(fileName)} — {n} étape(s)")
-		self.update_log(f"Chargé : {os.path.basename(fileName)} ({n} étapes)")
+		self.update_log(f"Chargé : {os.path.basename(fileName)} ({n} étapes, {len(self.act_mapping)} règles ACT)")
 		self.btn_play_dance.setEnabled(n > 0 and self.controller.connected)
 		self.progress_bar.setValue(0)
 
@@ -719,6 +784,9 @@ class MainWindow(QMainWindow):
 
 	def update_score_ui(self, score: int):
 		self.score_label.setText(f"Score : {score}")
+
+	def update_log(self, message: str):
+		self.log_console.append(message)
 
 	def lire_capteur_rgb(self):
 		source = self.sensor_source_combo.currentText()
