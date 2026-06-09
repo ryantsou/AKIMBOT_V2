@@ -632,6 +632,9 @@ class MainWindow(QMainWindow):
 	def update_log(self, message: str):
 		self.log_console.append(message)
 
+	def update_log(self, message: str):
+		self.log_console.append(message)
+
 	def on_method_changed(self, text):
 		if text == "mock":
 			self.address_input.setText("mock")
