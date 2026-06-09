@@ -204,7 +204,6 @@ class MartyController:
 			r = self.marty.get_color_sensor_value_by_channel(sensor_name, 0)
 			g = self.marty.get_color_sensor_value_by_channel(sensor_name, 1)
 			b = self.marty.get_color_sensor_value_by_channel(sensor_name, 2)
-			# On ne logue que si les valeurs sont significatives pour ne pas polluer la console
 			if r + g + b > 0:
 				self.signals.log_message.emit(f"[{sensor_name}] R:{r} G:{g} B:{b}")
 			return (r, g, b)
@@ -297,7 +296,6 @@ class MainWindow(QMainWindow):
 		self.current_sequence = []
 		self.act_mapping = {}
 		
-		# Timer pour la boucle de détection de couleur (Mode ACT)
 		self.act_timer = QTimer()
 		self.act_timer.timeout.connect(self.process_act_loop)
         
@@ -339,12 +337,12 @@ class MainWindow(QMainWindow):
 		telemetry_group = QGroupBox("Télémétrie")
 		telemetry_layout = QVBoxLayout()
 		self.battery_label = QLabel("Batterie : Inconnue")
-		self.score_label = QLabel("Score : 0") # New score label
+		self.score_label = QLabel("Score : 0") 
 		self.battery_bar = QProgressBar()
 		self.battery_bar.setRange(0, 100)
 		self.battery_bar.setValue(0)
 		telemetry_layout.addWidget(self.battery_label)
-		telemetry_layout.addWidget(self.score_label) # Add score label to layout
+		telemetry_layout.addWidget(self.score_label) 
 		telemetry_layout.addWidget(self.battery_bar)
 		telemetry_group.setLayout(telemetry_layout)
 
@@ -529,7 +527,7 @@ class MainWindow(QMainWindow):
 
 	def process_act_loop(self):
 		"""Boucle ACT : Vérifie les capteurs sous les pieds"""
-		# On vérifie les noms de capteurs typiques pour les pieds de Marty
+		
 		sensors_to_check = ["LeftColorSensor", "RightColorSensor", "ColorSensor"]
 		
 		for sensor in sensors_to_check:
@@ -540,12 +538,12 @@ class MainWindow(QMainWindow):
 					action = self.act_mapping.get(color_name)
 					if action:
 						self.update_log(f"[ACT] {sensor} a vu {color_name.upper()} -> Action : {action}")
-						# Exécution du mouvement
+						
 						if hasattr(self.controller, action):
 							getattr(self.controller, action)()
-						# Envoi immédiat à l'arbitre
+						
 						self.api_client.send_movement(action, color=color_name)
-						return # On arrête dès qu'un capteur a trouvé quelque chose
+						return 
 
 
 	def load_dance_file(self):
@@ -561,7 +559,7 @@ class MainWindow(QMainWindow):
 			self.update_log("Aucune chorégraphie chargée.")
 			return
 		self.btn_play_dance.setEnabled(False)
-		# Le player gère maintenant l'envoi des mouvements à l'api_client étape par étape
+		
 		self.player.play(self.current_sequence)
 		self.btn_play_dance.setEnabled(True)
 		self.update_log("Lecture chorégraphie terminée.")
