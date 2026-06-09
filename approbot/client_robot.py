@@ -2,7 +2,7 @@ import sys
 import signal
 import json
 import math
-import os
+import os, requests
 import time
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox, QLineEdit, QFileDialog, QProgressBar)
 from PyQt5.QtCore import QObject, pyqtSignal
@@ -52,6 +52,7 @@ class ControllerSignals(QObject):
 	connection_status = pyqtSignal(bool)
 	dance_progress = pyqtSignal(int, int)
 	battery_updated = pyqtSignal(float)
+	score_updated = pyqtSignal(int)
 
 class MockMarty:
 	def __init__(self, signals: ControllerSignals):
@@ -232,30 +233,42 @@ class DanceParser:
 		return sequence
 
 class ChoreographyPlayer:
-	def __init__(self, controller: MartyController):
+	def __init__(self, controller: MartyController, api_client: 'ArbitreAPIClient'):
 		self.controller = controller
+		self.api_client = api_client
 
 	def play(self, sequence: list, progress_callback=None):
+		"""Joue la séquence et informe l'arbitre de chaque mouvement pour mettre à jour le score."""
 		total = len(sequence)
 		self.controller.signals.log_message.emit(f"Lancement de la chorégraphie ({total} mouvements)...")
 		for idx, action in enumerate(sequence, start=1):
 			self.controller.signals.log_message.emit(f"Exécution action {idx}/{total}: {action}")
-			time.sleep(0.05)
+			self.api_client.send_movement(action) # Envoi à l'arbitre
+			time.sleep(0.5)
 			self.controller.signals.dance_progress.emit(idx, total)
-			if progress_callback:
-				try:
-					progress_callback(idx, total)
-				except Exception:
-					pass
+			QApplication.processEvents() # Ensure UI updates
 
 class ArbitreAPIClient:
 	def __init__(self, signals: ControllerSignals, base_url="http://localhost:8000"):
 		self.base_url = base_url
 		self.signals = signals
 
-	def send_movement(self, action_type: str, color: str = None):
+	def send_movement(self, action_type: str, color: str = None, robot_id: str = "marty_01"):
 		payload = {"action_type": action_type, "color_detected": color}
 		self.signals.log_message.emit(f"[API] Envoi à l'arbitre : {action_type} ({color or 'N/A'})")
+		try:
+			response = requests.post(f"{self.base_url}/api/mouvements?robot_id={robot_id}", json=payload, timeout=5)
+			response.raise_for_status() # Lève une exception pour les codes d'erreur HTTP
+			data = response.json()
+			new_score = data.get("new_score", 0)
+			self.signals.log_message.emit(f"[API] Score actuel : {new_score}")
+			self.signals.score_updated.emit(new_score)
+		except requests.exceptions.ConnectionError:
+			self.signals.log_message.emit(f"[API] Erreur de connexion à l'arbitre à {self.base_url}")
+		except requests.exceptions.HTTPError as e:
+			self.signals.log_message.emit(f"[API] Erreur HTTP de l'arbitre : {e} - {e.response.text}")
+		except Exception as e:
+			self.signals.log_message.emit(f"[API] Erreur inattendue lors de l'envoi à l'arbitre : {e}")
 
 class MainWindow(QMainWindow):
 	def __init__(self):
@@ -266,7 +279,7 @@ class MainWindow(QMainWindow):
 		self.controller = MartyController(address="192.168.0.100")
 		self.api_client = ArbitreAPIClient(self.controller.signals)
 		self.parser = DanceParser()
-		self.player = ChoreographyPlayer(self.controller)
+		self.player = ChoreographyPlayer(self.controller, self.api_client)
 		self.color_sensor = ColorSensor()
 		self.current_sequence = []
         
@@ -274,6 +287,7 @@ class MainWindow(QMainWindow):
 		self.controller.signals.connection_status.connect(self.on_connection_status_changed)
 		self.controller.signals.dance_progress.connect(self.update_dance_progress)
 		self.controller.signals.battery_updated.connect(self.update_battery_ui)
+		self.controller.signals.score_updated.connect(self.update_score_ui)
 
 		self.init_ui()
 
@@ -307,10 +321,12 @@ class MainWindow(QMainWindow):
 		telemetry_group = QGroupBox("Télémétrie")
 		telemetry_layout = QVBoxLayout()
 		self.battery_label = QLabel("Batterie : Inconnue")
+		self.score_label = QLabel("Score : 0") # New score label
 		self.battery_bar = QProgressBar()
 		self.battery_bar.setRange(0, 100)
 		self.battery_bar.setValue(0)
 		telemetry_layout.addWidget(self.battery_label)
+		telemetry_layout.addWidget(self.score_label) # Add score label to layout
 		telemetry_layout.addWidget(self.battery_bar)
 		telemetry_group.setLayout(telemetry_layout)
 
@@ -484,7 +500,8 @@ class MainWindow(QMainWindow):
 			self.update_log("Aucune chorégraphie chargée.")
 			return
 		self.btn_play_dance.setEnabled(False)
-		self.player.play(self.current_sequence, progress_callback=self._update_progress)
+		# Le player gère maintenant l'envoi des mouvements à l'api_client étape par étape
+		self.player.play(self.current_sequence)
 		self.btn_play_dance.setEnabled(True)
 		self.update_log("Lecture chorégraphie terminée.")
 
@@ -492,15 +509,15 @@ class MainWindow(QMainWindow):
 		percent = int((current / total) * 100) if total > 0 else 0
 		self.progress_bar.setValue(percent)
 
-	def _update_progress(self, idx, total):
-		self.update_dance_progress(idx, total)
-
 	def update_battery_ui(self, value: float):
 		self.battery_bar.setValue(int(value))
 		self.battery_label.setText(f"Batterie : {value:.1f}%")
 
 	def update_log(self, message: str): self.log_console.append(message)
 	def walk_marty(self): self.controller.avancer()
+
+	def update_score_ui(self, score: int):
+		self.score_label.setText(f"Score : {score}")
 	def left_marty(self): self.controller.tourner_gauche()
 	def test_marty(self): self.controller.test_mouvement()
 	def right_marty(self): self.controller.tourner_droite()
