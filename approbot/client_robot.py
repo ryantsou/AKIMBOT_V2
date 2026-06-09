@@ -60,16 +60,19 @@ class MockMarty:
 		self.signals = signals
 
 	def celebrate(self):
-		self.signals.log_message.emit("[MOCK] Marty fait une danse de célébration !")
-        
+		self.signals.log_message.emit("[MOCK] celebrate()")
+
 	def walk(self, num_steps=2, turn=0, **kwargs):
-		self.signals.log_message.emit(f"[MOCK] Le faux robot marche : {num_steps} pas, rotation {turn}, options: {kwargs}")
+		self.signals.log_message.emit(f"[MOCK] walk(num_steps={num_steps}, turn={turn})")
+
+	def turn(self, num_steps=2, turn=25, move_time=1500):
+		self.signals.log_message.emit(f"[MOCK] turn(num_steps={num_steps}, turn={turn})")
 
 	def arms(self, left_angle, right_angle, move_time=1000, **kwargs):
-		self.signals.log_message.emit(f"[MOCK] Bras - Gauche: {left_angle}°, Droit: {right_angle}°")
+		self.signals.log_message.emit(f"[MOCK] arms(left={left_angle}°, right={right_angle}°)")
 
 	def eyes(self, pose_or_angle, **kwargs):
-		self.signals.log_message.emit(f"[MOCK] Yeux : {pose_or_angle}")
+		self.signals.log_message.emit(f"[MOCK] eyes({pose_or_angle})")
 
 	def get_color_sensor_value_by_channel(self, add_on_name: str, channel_index: int) -> int:
 		mock_rgb = {0: 180, 1: 30, 2: 25}
@@ -131,14 +134,14 @@ class MartyController:
 	def tourner_gauche(self):
 		if self.connected and self.marty:
 			self.signals.log_message.emit("Action : Marty tourne à gauche !")
-			self.marty.walk(num_steps=2, turn=25)
+			self.marty.turn(num_steps=2, turn=25)
 		else:
 			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de tourner.")
 
 	def tourner_droite(self):
 		if self.connected and self.marty:
 			self.signals.log_message.emit("Action : Marty tourne à droite !")
-			self.marty.walk(num_steps=2, turn=-25)
+			self.marty.turn(num_steps=2, turn=-25)
 		else:
 			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de tourner.")
 
@@ -407,23 +410,23 @@ class MainWindow(QMainWindow):
 		manual_controls_layout = QGridLayout()
         
 		self.btn_walk = QPushButton("Avancer")
-		self.btn_walk.clicked.connect(self.walk_marty)
+		self.btn_walk.clicked.connect(self.controller.avancer)
 		self.btn_walk.setEnabled(False)
-        
+
 		self.btn_left = QPushButton("Gauche")
-		self.btn_left.clicked.connect(self.left_marty)
+		self.btn_left.clicked.connect(self.controller.tourner_gauche)
 		self.btn_left.setEnabled(False)
-        
+
 		self.btn_test = QPushButton("Célébrer")
-		self.btn_test.clicked.connect(self.test_marty)
+		self.btn_test.clicked.connect(self.controller.test_mouvement)
 		self.btn_test.setEnabled(False)
-        
+
 		self.btn_right = QPushButton("Droite")
-		self.btn_right.clicked.connect(self.right_marty)
+		self.btn_right.clicked.connect(self.controller.tourner_droite)
 		self.btn_right.setEnabled(False)
-        
+
 		self.btn_backward = QPushButton("Reculer")
-		self.btn_backward.clicked.connect(self.backward_marty)
+		self.btn_backward.clicked.connect(self.controller.reculer)
 		self.btn_backward.setEnabled(False)
 
 		self.btn_rgb = QPushButton("Lire capteur couleur (RGB)")
@@ -431,7 +434,7 @@ class MainWindow(QMainWindow):
 		self.btn_rgb.setEnabled(False)
 
 		self.btn_battery = QPushButton("Lire Batterie")
-		self.btn_battery.clicked.connect(self.lire_batterie)
+		self.btn_battery.clicked.connect(self.controller.lire_batterie)
 		self.btn_battery.setEnabled(False)
 
 		manual_controls_layout.addWidget(self.btn_walk, 0, 1)
@@ -590,28 +593,24 @@ class MainWindow(QMainWindow):
 		self.battery_bar.setValue(int(value))
 		self.battery_label.setText(f"Batterie : {value:.1f}%")
 
-	def update_log(self, message: str): self.log_console.append(message)
-	def walk_marty(self): self.controller.avancer()
-
 	def update_color_ui(self, color: str):
 		self.color_label.setText(f"Couleur détectée : {color}")
 
 	def update_score_ui(self, score: int):
 		self.score_label.setText(f"Score : {score}")
-	def left_marty(self): self.controller.tourner_gauche()
-	def test_marty(self): self.controller.test_mouvement()
-	def right_marty(self): self.controller.tourner_droite()
-	def backward_marty(self): self.controller.reculer()
+
 	def lire_capteur_rgb(self):
 		rgb = self.controller.lire_rgb()
 		if rgb:
 			r, g, b = rgb
 			color = self.color_sensor.identifier(r, g, b)
 			self.controller.signals.color_detected.emit(color)
-	def calibrer_couleur(self): self.controller.calibrer_couleur(self.color_combo.currentText(), self.color_sensor)
+
+	def calibrer_couleur(self):
+		self.controller.calibrer_couleur(self.color_combo.currentText(), self.color_sensor)
+
 	def ouvrir_calibration(self):
 		CalibrationDialog(self.controller, self.color_sensor, self).exec_()
-	def lire_batterie(self): self.controller.lire_batterie()
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
