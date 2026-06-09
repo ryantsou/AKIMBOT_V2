@@ -228,7 +228,6 @@ class MartyController:
 					r = g = b = int(raw)
 				self.signals.log_message.emit(f"Capteur pied brut ({foot}) — R:{r}  G:{g}  B:{b}")
 			else:
-				# Fallback: try color add-on first, then foot ground sensor
 				if hasattr(self.marty, "get_color_sensor_value_by_channel"):
 					r = self.marty.get_color_sensor_value_by_channel("ColorSensor", 0)
 					g = self.marty.get_color_sensor_value_by_channel("ColorSensor", 1)
@@ -286,10 +285,10 @@ class ChoreographyPlayer:
 		self.controller.signals.log_message.emit(f"Lancement de la chorégraphie ({total} mouvements)...")
 		for idx, action in enumerate(sequence, start=1):
 			self.controller.signals.log_message.emit(f"Exécution action {idx}/{total}: {action}")
-			self.api_client.send_movement(action) # Envoi à l'arbitre
+			self.api_client.send_movement(action)
 			time.sleep(0.5)
 			self.controller.signals.dance_progress.emit(idx, total)
-			QApplication.processEvents() # Ensure UI updates
+			QApplication.processEvents()
 
 class ArbitreAPIClient:
 	def __init__(self, signals: ControllerSignals, base_url="http://localhost:8000"):
@@ -626,7 +625,6 @@ class MainWindow(QMainWindow):
 			self.update_log("Aucune chorégraphie chargée.")
 			return
 		self.btn_play_dance.setEnabled(False)
-		# Le player gère maintenant l'envoi des mouvements à l'api_client étape par étape
 		self.player.play(self.current_sequence)
 		self.btn_play_dance.setEnabled(True)
 		self.update_log("Lecture chorégraphie terminée.")
