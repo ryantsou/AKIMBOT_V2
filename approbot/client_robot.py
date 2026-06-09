@@ -53,6 +53,7 @@ class ControllerSignals(QObject):
 	dance_progress = pyqtSignal(int, int)
 	battery_updated = pyqtSignal(float)
 	score_updated = pyqtSignal(int)
+	color_detected = pyqtSignal(str)
 
 class MockMarty:
 	def __init__(self, signals: ControllerSignals):
@@ -288,6 +289,7 @@ class MainWindow(QMainWindow):
 		self.controller.signals.dance_progress.connect(self.update_dance_progress)
 		self.controller.signals.battery_updated.connect(self.update_battery_ui)
 		self.controller.signals.score_updated.connect(self.update_score_ui)
+		self.controller.signals.color_detected.connect(self.update_color_ui)
 
 		self.init_ui()
 
@@ -321,13 +323,15 @@ class MainWindow(QMainWindow):
 		telemetry_group = QGroupBox("Télémétrie")
 		telemetry_layout = QVBoxLayout()
 		self.battery_label = QLabel("Batterie : Inconnue")
-		self.score_label = QLabel("Score : 0") # New score label
+		self.color_label = QLabel("Couleur détectée : Inconnue")
+		self.score_label = QLabel("Score : 0")
 		self.battery_bar = QProgressBar()
 		self.battery_bar.setRange(0, 100)
 		self.battery_bar.setValue(0)
 		telemetry_layout.addWidget(self.battery_label)
-		telemetry_layout.addWidget(self.score_label) # Add score label to layout
 		telemetry_layout.addWidget(self.battery_bar)
+		telemetry_layout.addWidget(self.color_label)
+		telemetry_layout.addWidget(self.score_label)
 		telemetry_group.setLayout(telemetry_layout)
 
 		manual_controls_group = QGroupBox("Piloter Marty")
@@ -516,13 +520,21 @@ class MainWindow(QMainWindow):
 	def update_log(self, message: str): self.log_console.append(message)
 	def walk_marty(self): self.controller.avancer()
 
+	def update_color_ui(self, color: str):
+		self.color_label.setText(f"Couleur détectée : {color}")
+
 	def update_score_ui(self, score: int):
 		self.score_label.setText(f"Score : {score}")
 	def left_marty(self): self.controller.tourner_gauche()
 	def test_marty(self): self.controller.test_mouvement()
 	def right_marty(self): self.controller.tourner_droite()
 	def backward_marty(self): self.controller.reculer()
-	def lire_capteur_rgb(self): self.controller.lire_rgb()
+	def lire_capteur_rgb(self):
+		rgb = self.controller.lire_rgb()
+		if rgb:
+			r, g, b = rgb
+			color = self.color_sensor.identifier(r, g, b)
+			self.controller.signals.color_detected.emit(color)
 	def calibrer_couleur(self): self.controller.calibrer_couleur(self.color_combo.currentText(), self.color_sensor)
 	def lire_batterie(self): self.controller.lire_batterie()
 
