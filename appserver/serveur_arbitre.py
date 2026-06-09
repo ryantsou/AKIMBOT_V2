@@ -3,7 +3,7 @@ import threading
 import queue
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, Dict
 import uvicorn
 from PyQt5.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout,
@@ -16,6 +16,7 @@ app = FastAPI(title="AKIMBOT - Serveur Arbitre")
 
 robots_scores: dict = {}
 robot_threads: dict = {}
+robot_sessions: Dict[str, "RobotSession"] = {}
 robots_lock = threading.Lock()
 
 
@@ -41,10 +42,25 @@ class RobotSession(BaseModel):
 
 class BattleArbitre:
     def __init__(self):
-        self.rules = {}
+        self.rules = {
+            "celebrate": {"score_modifier": 10},
+            "walk": {"score_modifier": 1, "color_bonus": {"red": 5, "blue": 2}},
+            "turn": {"score_modifier": 0},
+            "default": {"score_modifier": -1},
+        }
 
     def evaluate_action(self, action: MovementAction, session: RobotSession):
-        pass
+        score_change = 0
+        rule = self.rules.get(action.action_type, self.rules["default"])
+        score_change += rule.get("score_modifier", 0)
+        if action.color_detected and "color_bonus" in rule:
+            color_bonus = rule["color_bonus"].get(action.color_detected, 0)
+            score_change += color_bonus
+        session.current_score += score_change
+        return session.current_score
+
+
+arbitre = BattleArbitre()
 
 
 class RobotThread(threading.Thread):
@@ -79,8 +95,18 @@ class RobotThread(threading.Thread):
 
 @app.get("/")
 def read_root():
-    signals.new_log.emit("GET / - Vérification de l'état du serveur.")
     return {"status": "ok", "message": "Le Serveur Arbitre AKIMBOT est prêt !"}
+
+
+@app.post("/api/mouvements")
+def receive_movement(action: MovementAction, robot_id: str = "marty_01"):
+    with robots_lock:
+        if robot_id not in robot_sessions:
+            robot_sessions[robot_id] = RobotSession(robot_id=robot_id, team="blue", current_score=0)
+        new_score = arbitre.evaluate_action(action, robot_sessions[robot_id])
+    signals.new_log.emit(f"POST /api/mouvements - Robot '{robot_id}' → score {new_score}.")
+    signals.robot_updated.emit(robot_id, new_score)
+    return {"robot_id": robot_id, "new_score": new_score}
 
 
 @app.post("/robot/connect")
