@@ -1,3 +1,4 @@
+## reset all
 import sys
 import threading
 import queue
@@ -6,7 +7,7 @@ from pydantic import BaseModel
 from typing import Optional, Dict
 import uvicorn
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout,
     QWidget, QGroupBox, QTextEdit, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt5.QtCore import QThread, QObject, pyqtSignal
@@ -27,6 +28,14 @@ class ServerSignals(QObject):
 
 
 signals = ServerSignals()
+
+
+class MovementResponse(BaseModel):
+    robot_id: str
+    action_type: str
+    color_detected: Optional[str]
+    new_score: int
+    message: str
 
 
 class MovementAction(BaseModel):
@@ -99,14 +108,27 @@ def read_root():
 
 
 @app.post("/api/mouvements")
-def receive_movement(action: MovementAction, robot_id: str = "marty_01"):
+def receive_movement(action: MovementAction, robot_id: str = "marty_01") -> MovementResponse:
+    """Réception d'un mouvement, calcul du score via l'arbitre et retour du nouvel état."""
     with robots_lock:
         if robot_id not in robot_sessions:
             robot_sessions[robot_id] = RobotSession(robot_id=robot_id, team="blue", current_score=0)
+            if robot_id not in robot_threads:
+                thread = RobotThread(robot_id, "blue")
+                thread.start()
+                robot_threads[robot_id] = thread
+                robots_scores[robot_id] = 0
         new_score = arbitre.evaluate_action(action, robot_sessions[robot_id])
-    signals.new_log.emit(f"POST /api/mouvements - Robot '{robot_id}' → score {new_score}.")
-    signals.robot_updated.emit(robot_id, new_score)
-    return {"robot_id": robot_id, "new_score": new_score}
+        thread = robot_threads.get(robot_id)
+    if thread:
+        thread.update_score(new_score)
+    return MovementResponse(
+        robot_id=robot_id,
+        action_type=action.action_type,
+        color_detected=action.color_detected,
+        new_score=new_score,
+        message="Mouvement validé et score mis à jour."
+    )
 
 
 @app.post("/robot/connect")
@@ -167,6 +189,11 @@ class ArbitreWindow(QMainWindow):
         left_group = QGroupBox("Robots Connectés & Scores")
         left_layout = QVBoxLayout()
 
+        self.current_score_label = QLabel("Score en temps réel : aucun mouvement reçu")
+        self.current_score_label.setStyleSheet("font-weight: bold; margin-bottom: 8px;")
+        self.total_score_label = QLabel("Score total : 0")
+        self.total_score_label.setStyleSheet("margin-bottom: 12px;")
+
         self.robots_table = QTableWidget(0, 2)
         self.robots_table.setHorizontalHeaderLabels(["Robot", "Score"])
         self.robots_table.horizontalHeader().setSectionResizeMode(0, QHeaderView.Stretch)
@@ -175,6 +202,8 @@ class ArbitreWindow(QMainWindow):
         self.robots_table.setSelectionBehavior(QTableWidget.SelectRows)
         self.robots_table.verticalHeader().setVisible(False)
 
+        left_layout.addWidget(self.current_score_label)
+        left_layout.addWidget(self.total_score_label)
         left_layout.addWidget(self.robots_table)
         left_group.setLayout(left_layout)
 
@@ -195,16 +224,24 @@ class ArbitreWindow(QMainWindow):
         self.log_console.append(message)
 
     def update_robot_table(self, robot_id: str, score: int):
+        updated = False
         for row in range(self.robots_table.rowCount()):
             if self.robots_table.item(row, 0).text() == robot_id:
                 self.robots_table.item(row, 1).setText(str(score))
-                return
-        row = self.robots_table.rowCount()
-        self.robots_table.insertRow(row)
-        self.robots_table.setItem(row, 0, QTableWidgetItem(robot_id))
-        score_item = QTableWidgetItem(str(score))
-        score_item.setForeground(QColor("#2ecc71"))
-        self.robots_table.setItem(row, 1, score_item)
+                updated = True
+                break
+                
+        if not updated:
+            row = self.robots_table.rowCount()
+            self.robots_table.insertRow(row)
+            self.robots_table.setItem(row, 0, QTableWidgetItem(robot_id))
+            score_item = QTableWidgetItem(str(score))
+            score_item.setForeground(QColor("#2ecc71"))
+            self.robots_table.setItem(row, 1, score_item)
+            
+        self.current_score_label.setText(f"Score en temps réel : {robot_id} → {score}")
+        with robots_lock:
+            self.total_score_label.setText(f"Score total : {sum(robots_scores.values())}")
 
     def remove_robot_from_table(self, robot_id: str):
         for row in range(self.robots_table.rowCount()):
