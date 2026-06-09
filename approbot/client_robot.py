@@ -297,16 +297,22 @@ class DanceParser:
 			with open(filepath, "r", encoding="utf-8") as f:
 				for line in f:
 					line = line.strip()
-					if not line or line.startswith("#"):
+					if not line or line.startswith("#") or line.startswith("//"):
 						continue
-					sequence.append(line)
-					if line.upper() == "[ACT]":
+
+					if line.upper() == "[SEQUENCE]":
+						current_section = "SEQUENCE"
+						continue
+					elif line.upper() == "[ACT]":
 						current_section = "ACT"
 						continue
+
 					if current_section == "ACT" and ":" in line:
-						color, action = line.split(":", 1)
-						act_mapping[color.strip().lower()] = action.strip()
-					else:
+						color, actions_raw = line.split(":", 1)
+						# Supporte une liste d'actions séparées par des virgules
+						actions = [a.strip() for a in actions_raw.split(",") if a.strip()]
+						act_mapping[color.strip().lower()] = actions
+					elif current_section == "SEQUENCE":
 						sequence.append(line)
 		except Exception as e:
 			print(f"Erreur lecture .dance: {e}")
@@ -651,6 +657,12 @@ class MainWindow(QMainWindow):
 
 		self.setCentralWidget(main_widget)
 
+	def update_log(self, message: str):
+		self.log_console.append(message)
+
+	def update_log(self, message: str):
+		self.log_console.append(message)
+
 	def on_method_changed(self, text):
 		if text == "mock":
 			self.address_input.setText("mock")
@@ -712,14 +724,14 @@ class MainWindow(QMainWindow):
 			if rgb:
 				color_name = self.color_sensor.identifier(*rgb)
 				if color_name != "unknown":
-					action = self.act_mapping.get(color_name)
-					if action:
-						self.update_log(f"[ACT] {name} a vu {color_name.upper()} -> Action : {action}")
-						
-						if hasattr(self.controller, action):
-							getattr(self.controller, action)()
-						
-						self.api_client.send_movement(action, color=color_name)
+					actions = self.act_mapping.get(color_name)
+					if actions:
+						self.update_log(f"[ACT] {name} a vu {color_name.upper()} -> Actions : {', '.join(actions)}")
+						for action in actions:
+							if hasattr(self.controller, action):
+								getattr(self.controller, action)()
+								self.api_client.send_movement(action, color=color_name)
+							time.sleep(0.2) # Temps de pause entre les mouvements automatiques
 						return 
 
 	def load_dance_file(self):
