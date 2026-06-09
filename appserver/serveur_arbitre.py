@@ -1,10 +1,12 @@
 import sys
+import threading
+import queue
 from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
 import uvicorn
 from PyQt5.QtWidgets import (
-    QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout,
+    QApplication, QMainWindow, QVBoxLayout, QHBoxLayout,
     QWidget, QGroupBox, QTextEdit, QTableWidget, QTableWidgetItem, QHeaderView
 )
 from PyQt5.QtCore import QThread, QObject, pyqtSignal
@@ -12,63 +14,116 @@ from PyQt5.QtGui import QColor
 
 app = FastAPI(title="AKIMBOT - Serveur Arbitre")
 
-# Stockage en mémoire : robot_id -> score
 robots_scores: dict = {}
+robot_threads: dict = {}
+robots_lock = threading.Lock()
+
 
 class ServerSignals(QObject):
     new_log = pyqtSignal(str)
-    robot_updated = pyqtSignal(str, int)  # (robot_id, score)
+    robot_updated = pyqtSignal(str, int)
+    robot_disconnected = pyqtSignal(str)
+
 
 signals = ServerSignals()
 
+
 class MovementAction(BaseModel):
-    # Données envoyées par le robot après un mouvement
     action_type: str
     color_detected: Optional[str] = None
 
+
 class RobotSession(BaseModel):
-    # Etat d'un robot pendant le match
     robot_id: str
     team: str
     current_score: int = 0
 
+
 class BattleArbitre:
-    # Moteur du jeu qui lit les règles et donne les points
     def __init__(self):
         self.rules = {}
 
     def evaluate_action(self, action: MovementAction, session: RobotSession):
-        # TODO: Calculer les points en fonction de l'action et des règles
         pass
+
+
+class RobotThread(threading.Thread):
+    def __init__(self, robot_id: str, team: str):
+        super().__init__(daemon=True)
+        self.robot_id = robot_id
+        self.team = team
+        self.score = 0
+        self._queue = queue.Queue()
+        self._stop_event = threading.Event()
+
+    def update_score(self, new_score: int):
+        self._queue.put(new_score)
+
+    def stop(self):
+        self._stop_event.set()
+        self._queue.put(None)
+
+    def run(self):
+        while not self._stop_event.is_set():
+            try:
+                item = self._queue.get(timeout=1)
+                if item is None:
+                    break
+                self.score = item
+                with robots_lock:
+                    robots_scores[self.robot_id] = self.score
+                signals.robot_updated.emit(self.robot_id, self.score)
+            except queue.Empty:
+                continue
+
 
 @app.get("/")
 def read_root():
     signals.new_log.emit("GET / - Vérification de l'état du serveur.")
     return {"status": "ok", "message": "Le Serveur Arbitre AKIMBOT est prêt !"}
 
+
 @app.post("/robot/connect")
 def robot_connect(session: RobotSession):
-    if session.robot_id not in robots_scores:
-        robots_scores[session.robot_id] = 0
+    with robots_lock:
+        if session.robot_id not in robot_threads:
+            thread = RobotThread(session.robot_id, session.team)
+            thread.start()
+            robot_threads[session.robot_id] = thread
+            robots_scores[session.robot_id] = 0
     signals.new_log.emit(f"POST /robot/connect - Robot '{session.robot_id}' (équipe {session.team}) connecté.")
-    signals.robot_updated.emit(session.robot_id, robots_scores[session.robot_id])
+    signals.robot_updated.emit(session.robot_id, 0)
     return {"status": "connected", "robot_id": session.robot_id}
+
 
 @app.post("/robot/score")
 def update_score(session: RobotSession):
-    robots_scores[session.robot_id] = session.current_score
+    with robots_lock:
+        thread = robot_threads.get(session.robot_id)
+    if thread is None:
+        return {"status": "error", "message": f"Robot '{session.robot_id}' non connecté."}
+    thread.update_score(session.current_score)
     signals.new_log.emit(f"POST /robot/score - Robot '{session.robot_id}' → score {session.current_score}.")
-    signals.robot_updated.emit(session.robot_id, session.current_score)
     return {"status": "updated", "robot_id": session.robot_id, "score": session.current_score}
 
-# --- 2. Thread d'arrière-plan pour uvicorn ---
+
+@app.post("/robot/disconnect")
+def robot_disconnect(session: RobotSession):
+    with robots_lock:
+        thread = robot_threads.pop(session.robot_id, None)
+        robots_scores.pop(session.robot_id, None)
+    if thread:
+        thread.stop()
+    signals.new_log.emit(f"POST /robot/disconnect - Robot '{session.robot_id}' déconnecté.")
+    signals.robot_disconnected.emit(session.robot_id)
+    return {"status": "disconnected", "robot_id": session.robot_id}
+
+
 class UvicornThread(QThread):
     def run(self):
-        # Lancement du serveur sans bloquer l'interface PyQt5.
-        # On passe l'objet `app` directement au lieu d'une chaîne de texte, et on enlève reload=True.
         uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
 
-# --- 3. Partie Interface Graphique (PyQt5) - Tâche #46 ---
+
 class ArbitreWindow(QMainWindow):
     def __init__(self):
         super().__init__()
@@ -77,6 +132,7 @@ class ArbitreWindow(QMainWindow):
         self.init_ui()
         signals.new_log.connect(self.add_log)
         signals.robot_updated.connect(self.update_robot_table)
+        signals.robot_disconnected.connect(self.remove_robot_from_table)
 
     def init_ui(self):
         main_widget = QWidget()
@@ -124,6 +180,13 @@ class ArbitreWindow(QMainWindow):
         score_item.setForeground(QColor("#2ecc71"))
         self.robots_table.setItem(row, 1, score_item)
 
+    def remove_robot_from_table(self, robot_id: str):
+        for row in range(self.robots_table.rowCount()):
+            if self.robots_table.item(row, 0).text() == robot_id:
+                self.robots_table.removeRow(row)
+                return
+
+
 def main():
     qt_app = QApplication(sys.argv)
     window = ArbitreWindow()
@@ -131,6 +194,7 @@ def main():
     api_thread = UvicornThread()
     api_thread.start()
     sys.exit(qt_app.exec_())
+
 
 if __name__ == "__main__":
     main()
