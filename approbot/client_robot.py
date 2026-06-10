@@ -209,7 +209,7 @@ class MartyController:
 			self.signals.log_message.emit(f"Erreur lecture batterie : {e}")
 			return 0.0
 
-	def lire_rgb(self, source: str = "foot", foot: str = "left") -> tuple:
+	def lire_rgb(self, source: str = "foot", foot: str = "left", verbose: bool = True) -> tuple:
 		if not self.connected or not self.marty:
 			self.signals.log_message.emit("Marty non connecté. Impossible de lire le capteur couleur.")
 			return None
@@ -226,7 +226,8 @@ class MartyController:
 			else:
 				raise AttributeError("Source de capteur non supportée ou non trouvée.")
 			
-			self.signals.log_message.emit(f"{label} brut — R:{r}  G:{g}  B:{b}")
+			if verbose:
+				self.signals.log_message.emit(f"{label} brut — R:{r}  G:{g}  B:{b}")
 			return (r, g, b)
 		except Exception as e:
 			self.signals.log_message.emit(f"Erreur lecture capteur couleur : {e}")
@@ -422,6 +423,7 @@ class MainWindow(QMainWindow):
 		self.parser = DanceParser()
 		self.player = ChoreographyPlayer(self.controller, self.api_client)
 		self.color_sensor = ColorSensor()
+		self.is_processing_act = False
 		self.current_sequence = []
 		self.act_mapping = {}
 		
@@ -435,214 +437,13 @@ class MainWindow(QMainWindow):
 		self.controller.signals.score_updated.connect(self.update_score_ui)
 		self.controller.signals.color_detected.connect(self.update_color_ui)
 
-		self.init_ui()
+		self._init_ui()
 
-	def init_ui(self):
+	def _init_ui(self):
 		main_widget = QWidget()
 		main_layout = QHBoxLayout(main_widget)
 
 		left_panel_layout = QVBoxLayout()
-
-		connection_group = QGroupBox("Connexion")
-		connection_layout = QVBoxLayout()
-
-		self.method_combo = QComboBox()
-		self.method_combo.addItems(["wifi", "usb", "mock"])
-		self.method_combo.currentTextChanged.connect(self.on_method_changed)
-		connection_layout.addWidget(QLabel("Méthode :"))
-		connection_layout.addWidget(self.method_combo)
-
-		self.address_input = QLineEdit()
-		self.address_input.setText("192.168.0.100")
-		connection_layout.addWidget(QLabel("Adresse (IP, port USB ou mock) :"))
-		connection_layout.addWidget(self.address_input)
-
-		self.status_label = QLabel("Statut : Déconnecté")
-		connection_layout.addWidget(self.status_label)
-		self.btn_connect = QPushButton("Connecter Marty")
-		self.btn_connect.clicked.connect(self.connect_marty)
-		connection_layout.addWidget(self.btn_connect)
-		connection_group.setLayout(connection_layout)
-
-		telemetry_group = QGroupBox("Télémétrie")
-		telemetry_layout = QVBoxLayout()
-		self.battery_label = QLabel("Batterie : Inconnue")
-		self.color_label = QLabel("Couleur détectée : Inconnue")
-		self.score_label = QLabel("Score : 0")
-		self.battery_bar = QProgressBar()
-		self.battery_bar.setRange(0, 100)
-		self.battery_bar.setValue(0)
-		telemetry_layout.addWidget(self.battery_label)
-		telemetry_layout.addWidget(self.battery_bar)
-		telemetry_layout.addWidget(self.color_label)
-		telemetry_layout.addWidget(self.score_label)
-		telemetry_group.setLayout(telemetry_layout)
-
-		manual_controls_group = QGroupBox("Piloter Marty")
-		manual_controls_layout = QGridLayout()
-        
-		self.btn_walk = QPushButton("Avancer")
-		self.btn_walk.clicked.connect(self.controller.avancer)
-		self.btn_walk.setEnabled(False)
-
-		self.btn_left = QPushButton("Gauche")
-		self.btn_left.clicked.connect(self.controller.tourner_gauche)
-		self.btn_left.setEnabled(False)
-
-		self.btn_test = QPushButton("Célébrer")
-		self.btn_test.clicked.connect(self.controller.test_mouvement)
-		self.btn_test.setEnabled(False)
-
-		self.btn_right = QPushButton("Droite")
-		self.btn_right.clicked.connect(self.controller.tourner_droite)
-		self.btn_right.setEnabled(False)
-
-		self.btn_backward = QPushButton("Reculer")
-		self.btn_backward.clicked.connect(self.controller.reculer)
-		self.btn_backward.setEnabled(False)
-
-		self.sensor_source_combo = QComboBox()
-		self.sensor_source_combo.addItems(["Pied gauche", "Pied droit", "Capteur couleur"])
-		self.sensor_source_combo.setEnabled(False)
-
-		self.btn_rgb = QPushButton("Lire capteur couleur (RGB)")
-		self.btn_rgb.clicked.connect(self.lire_capteur_rgb)
-		self.btn_rgb.setEnabled(False)
-
-		self.btn_battery = QPushButton("Lire Batterie")
-		self.btn_battery.clicked.connect(self.controller.lire_batterie)
-		self.btn_battery.setEnabled(False)
-
-		manual_controls_layout.addWidget(self.btn_walk, 0, 1)
-		manual_controls_layout.addWidget(self.btn_left, 1, 0)
-		manual_controls_layout.addWidget(self.btn_test, 1, 1)
-		manual_controls_layout.addWidget(self.btn_right, 1, 2)
-		manual_controls_layout.addWidget(self.btn_backward, 2, 1)
-		manual_controls_layout.addWidget(QLabel("Source capteur:"), 3, 0)
-		manual_controls_layout.addWidget(self.sensor_source_combo, 3, 1, 1, 2)
-		manual_controls_layout.addWidget(self.btn_rgb, 4, 0, 1, 3)
-		manual_controls_layout.addWidget(self.btn_battery, 5, 0, 1, 3)
-		manual_controls_group.setLayout(manual_controls_layout)
-
-		arms_group = QGroupBox("Contrôles Bras & Yeux")
-		arms_layout = QGridLayout()
-
-		self.btn_bras_gauche_up = QPushButton("Lever Bras G.")
-		self.btn_bras_gauche_up.clicked.connect(self.controller.lever_bras_gauche)
-		self.btn_bras_gauche_up.setEnabled(False)
-
-		self.btn_bras_gauche_down = QPushButton("Baisser Bras G.")
-		self.btn_bras_gauche_down.clicked.connect(self.controller.baisser_bras_gauche)
-		self.btn_bras_gauche_down.setEnabled(False)
-
-		self.btn_bras_droit_up = QPushButton("Lever Bras D.")
-		self.btn_bras_droit_up.clicked.connect(self.controller.lever_bras_droit)
-		self.btn_bras_droit_up.setEnabled(False)
-
-		self.btn_bras_droit_down = QPushButton("Baisser Bras D.")
-		self.btn_bras_droit_down.clicked.connect(self.controller.baisser_bras_droit)
-		self.btn_bras_droit_down.setEnabled(False)
-
-		self.btn_yeux_faches = QPushButton("Yeux Fâchés")
-		self.btn_yeux_faches.clicked.connect(lambda checked: self.controller.bouger_yeux("angry"))
-		self.btn_yeux_faches.setEnabled(False)
-
-		self.btn_yeux_surpris = QPushButton("Yeux Surpris")
-		self.btn_yeux_surpris.clicked.connect(lambda checked: self.controller.bouger_yeux("excited"))
-		self.btn_yeux_surpris.setEnabled(False)
-
-		self.btn_yeux_wiggle = QPushButton("Wiggle (Yeux)")
-		self.btn_yeux_wiggle.clicked.connect(lambda checked: self.controller.bouger_yeux("wiggle"))
-		self.btn_yeux_wiggle.setEnabled(False)
-
-		arms_layout.addWidget(self.btn_bras_gauche_up, 0, 0)
-		arms_layout.addWidget(self.btn_bras_gauche_down, 0, 1)
-		arms_layout.addWidget(self.btn_bras_droit_up, 1, 0)
-		arms_layout.addWidget(self.btn_bras_droit_down, 1, 1)
-		arms_layout.addWidget(self.btn_yeux_faches, 2, 0)
-		arms_layout.addWidget(self.btn_yeux_surpris, 2, 1)
-		arms_layout.addWidget(self.btn_yeux_wiggle, 3, 0, 1, 2)
-		arms_group.setLayout(arms_layout)
-
-		calibration_group = QGroupBox("Calibrer le capteur couleur")
-		calibration_layout = QVBoxLayout()
-		self.color_combo = QComboBox()
-		self.color_combo.addItems(["red", "green", "blue", "yellow", "white", "black"])
-		calibration_layout.addWidget(self.color_combo)
-		self.btn_calibrate = QPushButton("Calibrer cette couleur")
-		self.btn_calibrate.clicked.connect(self.calibrer_couleur)
-		self.btn_calibrate.setEnabled(False)
-		calibration_layout.addWidget(self.btn_calibrate)
-		self.btn_calibration_dialog = QPushButton("Calibrer les 6 couleurs…")
-		self.btn_calibration_dialog.clicked.connect(self.ouvrir_calibration)
-		self.btn_calibration_dialog.setEnabled(False)
-		calibration_layout.addWidget(self.btn_calibration_dialog)
-		calibration_group.setLayout(calibration_layout)
-
-		dance_group = QGroupBox("Chorégraphie")
-		dance_layout = QVBoxLayout()
-		self.btn_load_dance = QPushButton("Charger .dance")
-		self.btn_load_dance.clicked.connect(self.load_dance_file)
-		self.btn_load_dance.setEnabled(False)
-		self.btn_play_dance = QPushButton("Jouer la séquence")
-		self.btn_play_dance.clicked.connect(self.play_dance)
-		self.btn_play_dance.setEnabled(False)
-		
-		self.btn_toggle_act = QPushButton("Démarrer Mode Automatique (ACT)")
-		self.btn_toggle_act.clicked.connect(self.toggle_act_mode)
-		self.btn_toggle_act.setEnabled(False)
-		self.btn_toggle_act.setStyleSheet("background-color: #d5f5e3;")
-
-		self.progress_bar = QProgressBar()
-		self.progress_bar.setRange(0, 100)
-		self.progress_bar.setValue(0)
-		dance_layout.addWidget(self.btn_load_dance)
-		dance_layout.addWidget(self.btn_play_dance)
-		dance_layout.addWidget(self.btn_toggle_act)
-		dance_layout.addWidget(self.progress_bar)
-		dance_group.setLayout(dance_layout)
-
-		left_panel_layout.addWidget(connection_group)
-		left_panel_layout.addWidget(telemetry_group)
-		left_panel_layout.addWidget(manual_controls_group)
-		left_panel_layout.addWidget(arms_group)
-
-		emotions_group = QGroupBox("Émotions")
-		emotions_layout = QVBoxLayout()
-
-		self.btn_emotion_celebrer = QPushButton("Célébration (LED or)")
-		self.btn_emotion_celebrer.clicked.connect(self.controller.emotion_celebrer)
-		self.btn_emotion_celebrer.setEnabled(False)
-
-		self.btn_emotion_bras = QPushButton("Bras ouverts (LED bleu)")
-		self.btn_emotion_bras.clicked.connect(self.controller.emotion_bras_ouverts)
-		self.btn_emotion_bras.setEnabled(False)
-
-		self.btn_emotion_wiggle = QPushButton("Yeux wiggle (LED violet)")
-		self.btn_emotion_wiggle.clicked.connect(self.controller.emotion_yeux_wiggle)
-		self.btn_emotion_wiggle.setEnabled(False)
-
-		emotions_layout.addWidget(self.btn_emotion_celebrer)
-		emotions_layout.addWidget(self.btn_emotion_bras)
-		emotions_layout.addWidget(self.btn_emotion_wiggle)
-		emotions_group.setLayout(emotions_layout)
-
-		left_panel_layout.addWidget(emotions_group)
-		left_panel_layout.addWidget(calibration_group)
-		left_panel_layout.addWidget(dance_group)
-		left_panel_layout.addStretch()
-
-		right_panel_layout = QVBoxLayout()
-		self.log_console = QTextEdit()
-		self.log_console.setReadOnly(True)
-		right_panel_layout.addWidget(QLabel("Logs d'activité :"))
-		right_panel_layout.addWidget(self.log_console)
-
-		main_layout.addLayout(left_panel_layout, 1)
-		main_layout.addLayout(right_panel_layout, 2)
-
-		self.setCentralWidget(main_widget)
-		
 		self._create_connection_group(left_panel_layout)
 		self._create_telemetry_group(left_panel_layout)
 		self._create_manual_controls_group(left_panel_layout)
@@ -651,6 +452,9 @@ class MainWindow(QMainWindow):
 		self._create_calibration_group(left_panel_layout)
 		self._create_dance_group(left_panel_layout)
 		left_panel_layout.addStretch()
+
+		right_panel_layout = QVBoxLayout()
+		self._init_right_panel_content(right_panel_layout)
 
 		main_layout.addLayout(left_panel_layout, 1)
 		main_layout.addLayout(right_panel_layout, 2)
@@ -827,13 +631,11 @@ class MainWindow(QMainWindow):
 		dance_group.setLayout(dance_layout)
 		parent_layout.addWidget(dance_group)
 
-	def _init_right_panel(self, main_layout: QHBoxLayout):
-		right_panel_layout = QVBoxLayout()
+	def _init_right_panel_content(self, layout: QVBoxLayout):
 		self.log_console = QTextEdit()
 		self.log_console.setReadOnly(True)
-		right_panel_layout.addWidget(QLabel("Logs d'activité :"))
-		right_panel_layout.addWidget(self.log_console)
-		main_layout.addLayout(right_panel_layout, 2)
+		layout.addWidget(QLabel("Logs d'activité :"))
+		layout.addWidget(self.log_console)
 
 	def update_log(self, message: str):
 		self.log_console.append(message)
@@ -885,39 +687,47 @@ class MainWindow(QMainWindow):
 		if not self.act_mapping:
 			self.update_log("Erreur : Aucune section [ACT] trouvée dans le fichier .dance chargé.")
 			return
-		self.act_timer.start(1000) # Scan toutes les secondes
+		self.act_timer.start(200) # Polling continu toutes les 200ms
 		self.btn_toggle_act.setText("ARRÊTER Mode Automatique")
 		self.btn_toggle_act.setStyleSheet("background-color: #fadbd8;")
 		self.update_log("Mode ACT démarré : surveillance du capteur couleur...")
 
 	def _stop_act_mode(self):
 		self.act_timer.stop()
+		self.is_processing_act = False
 		self.btn_toggle_act.setText("Démarrer Mode Automatique (ACT)")
 		self.btn_toggle_act.setStyleSheet("background-color: #d5f5e3;")
 		self.update_log("Mode ACT arrêté.")
 
 	def process_act_loop(self):
 		"""Boucle ACT : Vérifie les capteurs sous les pieds"""
+		if self.is_processing_act or not self.controller.connected:
+			return
+
+		self.is_processing_act = True
 		sensors_to_check = [
 			("foot", "left", "Pied Gauche"),
 			("foot", "right", "Pied Droit"),
 			("color", "", "Capteur Add-on")
 		]
 		
-		for source, foot, name in sensors_to_check:
-			rgb = self.controller.lire_rgb(source=source, foot=foot)
-			if rgb:
-				color_name = self.color_sensor.identifier(*rgb)
-				if color_name != "unknown":
-					actions = self.act_mapping.get(color_name)
-					if actions:
-						self.update_log(f"[ACT] {name} a vu {color_name.upper()} -> Actions : {', '.join(actions)}")
-						for action in actions:
-							if hasattr(self.controller, action):
-								getattr(self.controller, action)()
-								self.api_client.send_movement(action, color=color_name)
-							time.sleep(0.2) 
-						return 
+		try:
+			for source, foot, name in sensors_to_check:
+				rgb = self.controller.lire_rgb(source=source, foot=foot, verbose=False)
+				if rgb:
+					color_name = self.color_sensor.identifier(*rgb)
+					if color_name != "unknown":
+						actions = self.act_mapping.get(color_name)
+						if actions:
+							self.update_log(f"[ACT] {name} a vu {color_name.upper()} -> Actions : {', '.join(actions)}")
+							for action in actions:
+								if hasattr(self.controller, action):
+									getattr(self.controller, action)()
+									self.api_client.send_movement(action, color=color_name)
+								QApplication.processEvents() # Maintient l'UI fluide
+							return 
+		finally:
+			self.is_processing_act = False
 
 	def load_dance_file(self):
 		fileName, _ = QFileDialog.getOpenFileName(self, "Ouvrir un fichier de chorégraphie", "", "Dance Files (*.dance);;All Files (*)")
