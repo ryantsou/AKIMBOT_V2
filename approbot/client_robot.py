@@ -8,7 +8,12 @@ from PyQt5.QtCore import QObject, pyqtSignal
 import martypy
 # import requests
 
+<<<<<<< Updated upstream
 CALIBRATION_FILE = "calibration.json"
+=======
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+CALIBRATION_FILE = os.path.join(BASE_DIR, "calibration_couleurs.json")
+>>>>>>> Stashed changes
 
 class ColorSensor:
 	# Identifie les couleurs par distance euclidienne RGB avec valeurs calibrables
@@ -143,6 +148,17 @@ class MartyController:
 			self.signals.log_message.emit(f"Erreur lecture capteur couleur : {e}")
 			return None
 
+<<<<<<< Updated upstream
+=======
+	def _parse_raw_rgb(self, raw) -> tuple:
+		if isinstance(raw, (tuple, list)) and len(raw) == 3:
+			return raw
+		if isinstance(raw, dict):
+			return (int(raw.get("r", 0)), int(raw.get("g", 0)), int(raw.get("b", 0)))
+		val = int(raw)
+		return (val, val, val)
+
+>>>>>>> Stashed changes
 	def calibrer_couleur(self, couleur: str, color_sensor: ColorSensor):
 		rgb = self.lire_rgb()
 		if rgb is None:
@@ -175,7 +191,93 @@ class ArbitreAPIClient:
 	def send_movement(self, action_type: str, color: str = None):
 		# TODO: Faire un POST via requests
 		payload = {"action_type": action_type, "color_detected": color}
+<<<<<<< Updated upstream
 		print(f"Envoi de l'action à l'arbitre : {payload}")
+=======
+		self.signals.log_message.emit(f"[API] Envoi : {action_type} (Couleur: {color})")
+		try:
+			response = requests.post(f"{self.base_url}/api/mouvements?robot_id={robot_id}", json=payload, timeout=5)
+			response.raise_for_status()
+			data = response.json()
+			new_score = data.get("new_score", 0)
+			self.signals.log_message.emit(f"[API] Score actuel : {new_score}")
+			self.signals.score_updated.emit(new_score)
+		except requests.exceptions.ConnectionError:
+			self.signals.log_message.emit(f"[API] Erreur de connexion à l'arbitre à {self.base_url}")
+		except requests.exceptions.HTTPError as e:
+			self.signals.log_message.emit(f"[API] Erreur HTTP de l'arbitre : {e} - {e.response.text}")
+		except Exception as e:
+			self.signals.log_message.emit(f"[API] Erreur inattendue lors de l'envoi à l'arbitre : {e}")
+
+class CalibrationDialog(QDialog):
+	COLORS = [
+		("ROUGE", "red"),
+		("VERT",  "green"),
+		("BLEU",  "blue"),
+		("JAUNE", "yellow"),
+		("NOIR",  "black"),
+		("BLANC", "white"),
+	]
+
+	def __init__(self, controller: MartyController, color_sensor: ColorSensor, parent=None):
+		super().__init__(parent)
+		self.controller = controller
+		self.color_sensor = color_sensor
+		self.rgb_data = {key: list(color_sensor.calibration.get(key, [0, 0, 0])) for _, key in self.COLORS}
+		self._rgb_labels = {}
+		self.setWindowTitle("Calibration du capteur couleur")
+		self.setMinimumWidth(480)
+		self._init_ui()
+
+	def _init_ui(self):
+		layout = QVBoxLayout(self)
+		grid = QGridLayout()
+		grid.addWidget(QLabel("Couleur"), 0, 0)
+		grid.addWidget(QLabel("R"), 0, 1)
+		grid.addWidget(QLabel("G"), 0, 2)
+		grid.addWidget(QLabel("B"), 0, 3)
+		for row, (display_name, key) in enumerate(self.COLORS, start=1):
+			r, g, b = self.rgb_data[key]
+			lbl_r = QLabel(str(r))
+			lbl_g = QLabel(str(g))
+			lbl_b = QLabel(str(b))
+			btn_read = QPushButton("Lire")
+			btn_read.clicked.connect(lambda _, k=key: self._lire(k))
+			self._rgb_labels[key] = (lbl_r, lbl_g, lbl_b)
+			grid.addWidget(QLabel(display_name), row, 0)
+			grid.addWidget(lbl_r, row, 1)
+			grid.addWidget(lbl_g, row, 2)
+			grid.addWidget(lbl_b, row, 3)
+			grid.addWidget(btn_read, row, 4)
+		layout.addLayout(grid)
+		self._status_label = QLabel("")
+		layout.addWidget(self._status_label)
+		btn_row = QHBoxLayout()
+		btn_save = QPushButton("Sauvegarder")
+		btn_save.clicked.connect(self._sauvegarder)
+		btn_close = QPushButton("Fermer")
+		btn_close.clicked.connect(self.accept)
+		btn_row.addWidget(btn_save)
+		btn_row.addWidget(btn_close)
+		layout.addLayout(btn_row)
+
+	def _lire(self, key: str):
+		rgb = self.controller.lire_rgb()
+		if rgb is None:
+			return
+		r, g, b = rgb
+		self.rgb_data[key] = [r, g, b]
+		lbl_r, lbl_g, lbl_b = self._rgb_labels[key]
+		lbl_r.setText(str(r))
+		lbl_g.setText(str(g))
+		lbl_b.setText(str(b))
+
+	def _sauvegarder(self):
+		self.color_sensor.calibration = dict(self.rgb_data)
+		self.color_sensor._save()
+		self._status_label.setText("Calibration sauvegardée dans calibration_couleurs.json.")
+
+>>>>>>> Stashed changes
 
 class MainWindow(QMainWindow):
 	# Fenêtre principale de l'application PyQt
@@ -210,6 +312,10 @@ class MainWindow(QMainWindow):
 		connection_group = QGroupBox("Connexion")
 		connection_layout = QVBoxLayout()
 		self.status_label = QLabel("Statut : Déconnecté")
+<<<<<<< Updated upstream
+=======
+		self.status_label.setStyleSheet("color: red;")
+>>>>>>> Stashed changes
 		connection_layout.addWidget(self.status_label)
 		self.btn_connect = QPushButton("Connecter Marty")
 		self.btn_connect.clicked.connect(self.connect_marty)
@@ -270,8 +376,34 @@ class MainWindow(QMainWindow):
 		left_panel_layout.addWidget(calibration_group)
 		left_panel_layout.addStretch()
 
+<<<<<<< Updated upstream
 		# === Panneau de droite : Logs ===
 		right_panel_layout = QVBoxLayout()
+=======
+		self.btn_play_dance = QPushButton("Jouer la séquence")
+		self.btn_play_dance.clicked.connect(self.play_dance)
+
+		self.btn_toggle_act = QPushButton("Démarrer Mode Automatique (ACT)")
+		self.btn_toggle_act.clicked.connect(self.toggle_act_mode)
+		self.btn_toggle_act.setEnabled(False)
+
+		self.progress_bar = QProgressBar()
+		self.progress_bar.setRange(0, 100)
+		self.progress_bar.setValue(0)
+		self.movements_check_label = QLabel("Mouvements : -/-")
+		
+		dance_layout.addWidget(self.btn_load_dance)
+		dance_layout.addWidget(self.dance_info_label)
+		dance_layout.addWidget(self.btn_play_dance)
+		dance_layout.addWidget(self.btn_toggle_act)
+		dance_layout.addWidget(self.progress_bar)
+		dance_layout.addWidget(self.movements_check_label)
+		dance_group.setLayout(dance_layout)
+		parent_layout.addWidget(dance_group)
+
+	def _init_right_panel_content(self, layout: QVBoxLayout):
+		logs_title = QLabel("Logs d'activité")
+>>>>>>> Stashed changes
 		self.log_console = QTextEdit()
 		self.log_console.setReadOnly(True)
 		right_panel_layout.addWidget(QLabel("Logs d'activité :"))
@@ -284,13 +416,21 @@ class MainWindow(QMainWindow):
 		self.setCentralWidget(main_widget)
 
 	def connect_marty(self):
+<<<<<<< Updated upstream
 		self.status_label.setText("Connexion en cours...")
+=======
+		self.controller.method = self.method_combo.currentText()
+		self.controller.address = self.address_input.text()
+		self.status_label.setText("Statut : Connexion en cours…")
+		self.status_label.setStyleSheet("color: blue;")
+>>>>>>> Stashed changes
 		QApplication.processEvents()
 		self.controller.connect()
 
 	def on_connection_status_changed(self, connected: bool):
 		if connected:
 			self.status_label.setText(f"Statut : Connecté ({self.controller.method} - {self.controller.address}) !")
+<<<<<<< Updated upstream
 			for btn in [self.btn_walk, self.btn_left, self.btn_test, self.btn_right, self.btn_backward, self.btn_rgb, self.btn_calibrate]:
 				btn.setEnabled(True)
 			self.btn_connect.setEnabled(False)
@@ -310,6 +450,148 @@ class MainWindow(QMainWindow):
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
 	signal.signal(signal.SIGINT, signal.SIG_DFL)  # Permet de quitter avec Ctrl+C proprement
+=======
+			self.status_label.setStyleSheet("color: green;")
+			self._set_controls_enabled(True)
+		else:
+			self.status_label.setText("Statut : Échec de la connexion.")
+			self.status_label.setStyleSheet("color: red;")
+			self._set_controls_enabled(False)
+
+	def _set_controls_enabled(self, enabled: bool):
+		controls = [
+			self.btn_walk, self.btn_left, self.btn_test, self.btn_right, self.btn_backward, self.btn_rgb, self.btn_calibrate, self.btn_calibration_dialog, self.btn_battery,
+			self.sensor_source_combo,
+			self.btn_bras_gauche_up, self.btn_bras_gauche_down, self.btn_bras_droit_up, self.btn_bras_droit_down,
+			self.btn_yeux_faches, self.btn_yeux_surpris, self.btn_yeux_wiggle,
+			self.btn_emotion_celebrer, self.btn_emotion_bras, self.btn_emotion_wiggle,
+			self.btn_load_dance, self.btn_play_dance, self.btn_toggle_act
+		]
+		for control in controls:
+			control.setEnabled(enabled)
+		self.btn_connect.setEnabled(not enabled)
+
+	def toggle_act_mode(self):
+		if self.act_timer.isActive():
+			self._stop_act_mode()
+		else:
+			self._start_act_mode()
+
+	def _start_act_mode(self):
+		if not self.act_mapping:
+			self.update_log("Erreur : Aucune section [ACT] trouvée dans le fichier .dance chargé.")
+			return
+		self.act_timer.start(1000)
+		self.btn_toggle_act.setText("ARRÊTER Mode Automatique")
+		self.update_log("Mode ACT démarré : surveillance du capteur couleur...")
+
+	def _stop_act_mode(self):
+		self.act_timer.stop()
+		self.is_processing_act = False
+		self.btn_toggle_act.setText("Démarrer Mode Automatique (ACT)")
+		self.update_log("Mode ACT arrêté.")
+
+	def process_act_loop(self):
+		if self.is_processing_act or not self.controller.connected:
+			return
+
+		self.is_processing_act = True
+		sensors_to_check = [
+			("foot", "left", "Pied Gauche"),
+			("foot", "right", "Pied Droit"),
+			("color", "", "Capteur Add-on")
+		]
+		
+		try:
+			for source, foot, name in sensors_to_check:
+				rgb = self.controller.lire_rgb(source=source, foot=foot, verbose=False)
+				if rgb:
+					color_name = self.color_sensor.identifier(*rgb)
+					if color_name != "unknown":
+						actions = self.act_mapping.get(color_name)
+						if actions:
+							self.update_log(f"[ACT] {name} a vu {color_name.upper()} -> Actions : {', '.join(actions)}")
+							for action in actions:
+								if hasattr(self.controller, action):
+									getattr(self.controller, action)()
+									self.api_client.send_movement(action, color=color_name)
+								QApplication.processEvents()
+								time.sleep(0.2)
+							return 
+		finally:
+			self.is_processing_act = False
+
+	def load_dance_file(self):
+		fileName, _ = QFileDialog.getOpenFileName(self, "Charger un fichier .dance", "", "Dance Files (*.dance);;All Files (*)")
+		if not fileName:
+			return
+		self.current_sequence, self.act_mapping = self.parser.parse(fileName)
+		n = len(self.current_sequence)
+		self.dance_info_label.setText(f"{os.path.basename(fileName)} — {n} étape(s)")
+		self.update_log(f"Chargé : {os.path.basename(fileName)} ({n} étapes, {len(self.act_mapping)} règles ACT)")
+		self.btn_play_dance.setEnabled(n > 0 and self.controller.connected)
+		self.progress_bar.setValue(0)
+		self.movements_check_label.setText(f"Mouvements : 0/{n}")
+		self.movements_check_label.setStyleSheet("")
+
+	def play_dance(self):
+		if not self.current_sequence:
+			self.update_log("Aucune chorégraphie chargée.")
+			return
+		self.btn_play_dance.setEnabled(False)
+		self.player.play(self.current_sequence)
+		self.btn_play_dance.setEnabled(True)
+		self.update_log("Lecture chorégraphie terminée.")
+
+	def update_dance_progress(self, current, total):
+		percent = int((current / total) * 100) if total > 0 else 0
+		self.progress_bar.setValue(percent)
+
+	def update_battery_ui(self, value: float):
+		self.battery_bar.setValue(int(value))
+		self.battery_label.setText(f"Batterie : {value:.1f}%")
+
+	def update_color_ui(self, color: str):
+		self.color_label.setText(f"Couleur détectée : {color}")
+
+	def update_score_ui(self, score: int):
+		self.score_label.setText(f"Score : {score}")
+
+	def update_movements_verified_ui(self, executed: int, total: int, ok: bool):
+		self.movements_check_label.setText(f"Mouvements : {executed}/{total}")
+		if ok:
+			self.movements_check_label.setStyleSheet("color: green;")
+		else:
+			self.movements_check_label.setStyleSheet("color: red;")
+
+	def lire_capteur_rgb(self):
+		source = self.sensor_source_combo.currentText()
+		foot_param = "left" if source == "Pied gauche" else "right"
+		source_param = "color" if source == "Capteur couleur" else "foot"
+		
+		rgb = self.controller.lire_rgb(source=source_param, foot=foot_param)
+		if rgb:
+			r, g, b = rgb
+			color = self.color_sensor.identifier(r, g, b)
+			self.controller.signals.color_detected.emit(color)
+
+	def calibrer_couleur(self):
+		self.controller.calibrer_couleur(self.color_combo.currentText(), self.color_sensor)
+
+	def ouvrir_calibration(self):
+		CalibrationDialog(self.controller, self.color_sensor, self).exec_()
+
+if __name__ == "__main__":
+	app = QApplication(sys.argv)
+	app.setStyle("Fusion")
+	
+	style_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "styles.qss")
+	if os.path.exists(style_path):
+		with open(style_path, "r", encoding="utf-8") as f:
+			app.setStyleSheet(f.read())
+			
+	signal.signal(signal.SIGINT, signal.SIG_DFL)
+>>>>>>> Stashed changes
 	window = MainWindow()
 	window.show()
 	sys.exit(app.exec_())

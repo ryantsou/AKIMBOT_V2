@@ -1,4 +1,4 @@
-﻿# Algorigramme Client — Boucle capteur → action (ACT)
+﻿﻿# Algorigramme Client — Boucle capteur → action (ACT)
 
 Ce document modélise la boucle principale du robot client : lecture du capteur couleur,
 sélection de l'action via le fichier `.dance`, exécution du mouvement et envoi au serveur
@@ -9,7 +9,7 @@ arbitre (Tâche #15).
 ```mermaid
 graph TD
     Start([Démarrage boucle ACT]) --> LoadDance[Chargement du fichier .dance\nDanceParser.parse]
-    LoadDance --> ReadSensor[Lecture capteur couleur RGB\nMartyController → ColorDetector.identify]
+    LoadDance --> ReadSensor[Lecture capteur couleur RGB\nMartyController → ColorSensor.identifier]
 
     ReadSensor --> Known{Couleur reconnue ?}
 
@@ -38,8 +38,8 @@ graph TD
 
 1. **Chargement** : Au démarrage, `DanceParser.parse()` lit le fichier `.dance` et extrait
    la section `ACT` qui associe chaque couleur à une liste de mouvements.
-2. **Lecture capteur** : `ColorDetector.identify(r, g, b)` convertit les valeurs RGB brutes
-   en un nom de couleur (`red`, `green`, `blue`, `yellow`, `black`, `white`) par distance
+2. **Lecture capteur** : `ColorSensor.identifier(r, g, b)` convertit les valeurs RGB brutes
+   en un nom de couleur (`red`, `green`, `blue`, `yellow`, `white`, `black`) par distance
    euclidienne dans l'espace RGB.
 3. **Sélection de l'action** : La couleur détectée est cherchée dans la table ACT du fichier
    `.dance`. Si aucune correspondance n'existe, la boucle repart en lecture capteur.
@@ -54,9 +54,9 @@ graph TD
 
 | Code .dance | Couleur       |
 |-------------|---------------|
-| `N`         | Noir (black)  |
-| `B`         | Bleu (blue)   |
-| `R`         | Rouge (red)   |
-| `P`         | Violet/Rose   |
-| `Y`         | Jaune (yellow)|
-| `G`         | Vert (green)  |
+| `black`     | Noir          |
+| `blue`      | Bleu          |
+| `red`       | Rouge         |
+| `white`     | Blanc         |
+| `yellow`    | Jaune         |
+| `green`     | Vert          |

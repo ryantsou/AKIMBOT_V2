@@ -1,7 +1,4 @@
-- `approbot/client_robot.py`: l'interface graphique du client (PyQt5)
-- `requirements.txt`: liste des dépendances Python (FastAPI, PyQt5, etc.)
-+- `appserver/serveur_arbitre.py`: le serveur arbitre (FastAPI)
-# 🤖 AKIMBOT
+# AKIMBOT
 
 Bienvenue sur le dépôt du projet **AKIMBOT** ! 
 Il s'agit de notre projet visant à développer un système complet pour contrôler le robot Marty (via une interface graphique) et gérer des affrontements/danses via un serveur arbitre central.

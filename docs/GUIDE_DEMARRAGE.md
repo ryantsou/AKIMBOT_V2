@@ -1,10 +1,10 @@
-# 🚀 Guide de survie AKIMBOT (à lire absolument !)
+# Guide de démarrage AKIMBOT
 
-Yo .. Vu qu'on a restructuré les dossiers pour avoir un projet bien propre (fini le bazar à la racine), voici un petit récap express pour bien démarrer sans créer de conflits Git et tout casser.
+Ce document détaille les procédures standards pour contribuer au projet.
 
-## 1️⃣ Mettre à jour son PC (Le truc à pas oublier)
+## 1. Mise à jour du dépôt local
 
-Avant de commencer à coder, assurez-vous d'avoir la toute dernière version de `master` :
+Avant toute modification, synchronisez la branche principale :
 ```bash
 git checkout master
 git pull origin master
