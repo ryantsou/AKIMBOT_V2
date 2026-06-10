@@ -238,85 +238,43 @@ class MartyController:
 			self.signals.connection_status.emit(False)
 			return False
 
+	def _action(self, message: str, mouvement, action_type: str, echec: str):
+		if not (self.connected and self.marty):
+			self.signals.log_message.emit(echec)
+			return
+		self.signals.log_message.emit(message)
+		mouvement()
+		self._envoyer(action_type)
+
 	def test_mouvement(self):
-		if self.connected and self.marty:
-			self.signals.log_message.emit("Test basique : Marty célèbre !")
-			self.marty.celebrate()
-			self._envoyer("celebrate")
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de tester le mouvement.")
+		self._action("Test basique : Marty célèbre !", lambda: self.marty.celebrate(), "celebrate", "Marty n'est pas connecté. Impossible de tester le mouvement.")
 
 	def avancer(self):
-		if self.connected and self.marty:
-			self.signals.log_message.emit("Action : Marty avance de 4 pas !")
-			self.marty.walk(num_steps=4, turn=0)
-			self._envoyer("walk")
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible d'avancer.")
+		self._action("Action : Marty avance de 4 pas !", lambda: self.marty.walk(num_steps=4, turn=0), "walk", "Marty n'est pas connecté. Impossible d'avancer.")
 
 	def reculer(self):
-		if self.connected and self.marty:
-			self.signals.log_message.emit("Action : Marty recule de 4 pas !")
-			self.marty.walk(num_steps=4, step_length=-25, turn=0)
-			self._envoyer("walk")
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de reculer.")
+		self._action("Action : Marty recule de 4 pas !", lambda: self.marty.walk(num_steps=4, step_length=-25, turn=0), "walk", "Marty n'est pas connecté. Impossible de reculer.")
 
 	def tourner_gauche(self):
-		if self.connected and self.marty:
-			self.signals.log_message.emit("Action : Marty tourne à gauche !")
-			self.marty.turn(num_steps=2, turn=25)
-			self._envoyer("turn")
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de tourner.")
+		self._action("Action : Marty tourne à gauche !", lambda: self.marty.turn(num_steps=2, turn=25), "turn", "Marty n'est pas connecté. Impossible de tourner.")
 
 	def tourner_droite(self):
-		if self.connected and self.marty:
-			self.signals.log_message.emit("Action : Marty tourne à droite !")
-			self.marty.turn(num_steps=2, turn=-25)
-			self._envoyer("turn")
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de tourner.")
+		self._action("Action : Marty tourne à droite !", lambda: self.marty.turn(num_steps=2, turn=-25), "turn", "Marty n'est pas connecté. Impossible de tourner.")
 
 	def lever_bras_gauche(self):
-		if self.connected and self.marty:
-			self.signals.log_message.emit("Action : Marty lève le bras gauche !")
-			self.marty.arms(100, 0, 1000)
-			self._envoyer("arms")
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les bras.")
+		self._action("Action : Marty lève le bras gauche !", lambda: self.marty.arms(100, 0, 1000), "arms", "Marty n'est pas connecté. Impossible de bouger les bras.")
 
 	def baisser_bras_gauche(self):
-		if self.connected and self.marty:
-			self.signals.log_message.emit("Action : Marty baisse le bras gauche !")
-			self.marty.arms(0, 0, 1000)
-			self._envoyer("arms")
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les bras.")
+		self._action("Action : Marty baisse le bras gauche !", lambda: self.marty.arms(0, 0, 1000), "arms", "Marty n'est pas connecté. Impossible de bouger les bras.")
 
 	def lever_bras_droit(self):
-		if self.connected and self.marty:
-			self.signals.log_message.emit("Action : Marty lève le bras droit !")
-			self.marty.arms(0, 100, 1000)
-			self._envoyer("arms")
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les bras.")
+		self._action("Action : Marty lève le bras droit !", lambda: self.marty.arms(0, 100, 1000), "arms", "Marty n'est pas connecté. Impossible de bouger les bras.")
 
 	def baisser_bras_droit(self):
-		if self.connected and self.marty:
-			self.signals.log_message.emit("Action : Marty baisse le bras droit !")
-			self.marty.arms(0, 0, 1000)
-			self._envoyer("arms")
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les bras.")
+		self._action("Action : Marty baisse le bras droit !", lambda: self.marty.arms(0, 0, 1000), "arms", "Marty n'est pas connecté. Impossible de bouger les bras.")
 
 	def bouger_yeux(self, expression: str):
-		if self.connected and self.marty:
-			self.signals.log_message.emit(f"Action : Marty change ses yeux ({expression}) !")
-			self.marty.eyes(expression)
-			self._envoyer("eyes")
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les yeux.")
+		self._action(f"Action : Marty change ses yeux ({expression}) !", lambda: self.marty.eyes(expression), "eyes", "Marty n'est pas connecté. Impossible de bouger les yeux.")
 
 	def lire_batterie(self) -> float:
 		if not self.connected or not self.marty:
@@ -337,47 +295,42 @@ class MartyController:
 			self.signals.log_message.emit(f"Erreur lecture batterie : {e}")
 			return 0.0
 
+	def _lire_addon(self) -> tuple:
+		r = self.marty.get_color_sensor_value_by_channel("ColorSensor", 0)
+		g = self.marty.get_color_sensor_value_by_channel("ColorSensor", 1)
+		b = self.marty.get_color_sensor_value_by_channel("ColorSensor", 2)
+		self.signals.log_message.emit(f"Capteur add-on brut — R:{r}  G:{g}  B:{b}")
+		return (r, g, b)
+
+	def _lire_pied(self, foot: str) -> tuple:
+		raw = self.marty.get_ground_sensor_reading(foot.lower())
+		if isinstance(raw, (tuple, list)) and len(raw) == 3:
+			r, g, b = raw
+		elif isinstance(raw, dict):
+			r = int(raw.get("r", raw.get("red", 0)))
+			g = int(raw.get("g", raw.get("green", 0)))
+			b = int(raw.get("b", raw.get("blue", 0)))
+		else:
+			r = g = b = int(raw)
+		self.signals.log_message.emit(f"Capteur pied brut ({foot}) — R:{r}  G:{g}  B:{b}")
+		return (r, g, b)
+
 	def lire_rgb(self, source: str = "foot", foot: str = "left") -> tuple:
 		if not self.connected or not self.marty:
 			self.signals.log_message.emit("Marty non connecté. Impossible de lire le capteur couleur.")
 			return None
+		a_addon = hasattr(self.marty, "get_color_sensor_value_by_channel")
+		a_pied = hasattr(self.marty, "get_ground_sensor_reading")
 		try:
-			if source == "color" and hasattr(self.marty, "get_color_sensor_value_by_channel"):
-				r = self.marty.get_color_sensor_value_by_channel("ColorSensor", 0)
-				g = self.marty.get_color_sensor_value_by_channel("ColorSensor", 1)
-				b = self.marty.get_color_sensor_value_by_channel("ColorSensor", 2)
-				self.signals.log_message.emit(f"Capteur add-on brut — R:{r}  G:{g}  B:{b}")
-			elif source == "foot" and hasattr(self.marty, "get_ground_sensor_reading"):
-				raw = self.marty.get_ground_sensor_reading(foot.lower())
-				if isinstance(raw, (tuple, list)) and len(raw) == 3:
-					r, g, b = raw
-				elif isinstance(raw, dict):
-					r = int(raw.get("r", raw.get("red", 0)))
-					g = int(raw.get("g", raw.get("green", 0)))
-					b = int(raw.get("b", raw.get("blue", 0)))
-				else:
-					r = g = b = int(raw)
-				self.signals.log_message.emit(f"Capteur pied brut ({foot}) — R:{r}  G:{g}  B:{b}")
-			else:
-				if hasattr(self.marty, "get_color_sensor_value_by_channel"):
-					r = self.marty.get_color_sensor_value_by_channel("ColorSensor", 0)
-					g = self.marty.get_color_sensor_value_by_channel("ColorSensor", 1)
-					b = self.marty.get_color_sensor_value_by_channel("ColorSensor", 2)
-					self.signals.log_message.emit(f"Capteur add-on brut — R:{r}  G:{g}  B:{b}")
-				elif hasattr(self.marty, "get_ground_sensor_reading"):
-					raw = self.marty.get_ground_sensor_reading(foot.lower())
-					if isinstance(raw, (tuple, list)) and len(raw) == 3:
-						r, g, b = raw
-					elif isinstance(raw, dict):
-						r = int(raw.get("r", raw.get("red", 0)))
-						g = int(raw.get("g", raw.get("green", 0)))
-						b = int(raw.get("b", raw.get("blue", 0)))
-					else:
-						r = g = b = int(raw)
-					self.signals.log_message.emit(f"Capteur pied brut ({foot}) — R:{r}  G:{g}  B:{b}")
-				else:
-					raise AttributeError("Aucun capteur couleur compatible trouvé sur Marty")
-			return (r, g, b)
+			if source == "color" and a_addon:
+				return self._lire_addon()
+			if source == "foot" and a_pied:
+				return self._lire_pied(foot)
+			if a_addon:
+				return self._lire_addon()
+			if a_pied:
+				return self._lire_pied(foot)
+			raise AttributeError("Aucun capteur couleur compatible trouvé sur Marty")
 		except Exception as e:
 			self.signals.log_message.emit(f"Erreur lecture capteur couleur : {e}")
 			return None
@@ -391,31 +344,13 @@ class MartyController:
 		self.signals.log_message.emit(f"Calibration '{couleur}' enregistrée — R:{r}  G:{g}  B:{b}")
 
 	def emotion_celebrer(self):
-		if self.connected and self.marty:
-			self.marty.set_color(255, 215, 0)
-			self.marty.celebrate()
-			self._envoyer("celebrate")
-			self.signals.log_message.emit("Émotion : Célébration (LED or) !")
-		else:
-			self.signals.log_message.emit("Marty non connecté.")
+		self._action("Émotion : Célébration (LED or) !", lambda: (self.marty.set_color(255, 215, 0), self.marty.celebrate()), "celebrate", "Marty non connecté.")
 
 	def emotion_bras_ouverts(self):
-		if self.connected and self.marty:
-			self.marty.set_color(0, 0, 255)
-			self.marty.arms(left_angle=100, right_angle=-100)
-			self._envoyer("arms")
-			self.signals.log_message.emit("Émotion : Bras ouverts (LED bleu) !")
-		else:
-			self.signals.log_message.emit("Marty non connecté.")
+		self._action("Émotion : Bras ouverts (LED bleu) !", lambda: (self.marty.set_color(0, 0, 255), self.marty.arms(left_angle=100, right_angle=-100)), "arms", "Marty non connecté.")
 
 	def emotion_yeux_wiggle(self):
-		if self.connected and self.marty:
-			self.marty.set_color(200, 0, 200)
-			self.marty.eyes("wiggle")
-			self._envoyer("eyes")
-			self.signals.log_message.emit("Émotion : Yeux wiggle (LED violet) !")
-		else:
-			self.signals.log_message.emit("Marty non connecté.")
+		self._action("Émotion : Yeux wiggle (LED violet) !", lambda: (self.marty.set_color(200, 0, 200), self.marty.eyes("wiggle")), "eyes", "Marty non connecté.")
 
 class DanceParser:
 	_CMDS = {"U", "D", "L", "R", "T"}
