@@ -507,20 +507,9 @@ class MainWindow(QMainWindow):
 		self.btn_walk = QPushButton("Avancer")
 		self.btn_walk.clicked.connect(self.controller.avancer)
 
-		self.btn_left = QPushButton("Gauche")
-		self.btn_left.clicked.connect(self.controller.tourner_gauche)
-
-		self.btn_test = QPushButton("Célébrer")
-		self.btn_test.clicked.connect(self.controller.test_mouvement)
-
-		self.btn_right = QPushButton("Droite")
-		self.btn_right.clicked.connect(self.controller.tourner_droite)
-
-		self.btn_backward = QPushButton("Reculer")
-		self.btn_backward.clicked.connect(self.controller.reculer)
-
 		self.sensor_source_combo = QComboBox()
 		self.sensor_source_combo.addItems(["Pied gauche", "Pied droit", "Capteur couleur"])
+		self.sensor_source_combo.setEnabled(False)
 
 		self.btn_rgb = QPushButton("Lire capteur couleur (RGB)")
 		self.btn_rgb.clicked.connect(self.lire_capteur_rgb)
@@ -616,7 +605,7 @@ class MainWindow(QMainWindow):
 		self.btn_load_dance.clicked.connect(self.load_dance_file)
 		self.btn_play_dance = QPushButton("Jouer la séquence")
 		self.btn_play_dance.clicked.connect(self.play_dance)
-		
+
 		self.btn_toggle_act = QPushButton("Démarrer Mode Automatique (ACT)")
 		self.btn_toggle_act.clicked.connect(self.toggle_act_mode)
 		self.btn_toggle_act.setStyleSheet("background-color: #d5f5e3;")
@@ -766,7 +755,6 @@ class MainWindow(QMainWindow):
 		source_param = "color" if source == "Capteur couleur" else "foot"
 		
 		rgb = self.controller.lire_rgb(source=source_param, foot=foot_param)
-
 		if rgb:
 			r, g, b = rgb
 			color = self.color_sensor.identifier(r, g, b)
