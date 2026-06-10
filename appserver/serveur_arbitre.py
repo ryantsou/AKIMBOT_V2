@@ -1,6 +1,6 @@
 import os
-import sys
 import json
+import sys
 import threading
 import queue
 from pathlib import Path
@@ -22,7 +22,6 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
     existing_pythonpath = os.environ.get("PYTHONPATH", "")
     os.environ["PYTHONPATH"] = str(PROJECT_ROOT) if not existing_pythonpath else f"{PROJECT_ROOT}{os.pathsep}{existing_pythonpath}"
-
 robots_scores: dict = {}
 robot_threads: dict = {}
 robot_sessions: Dict[str, "RobotSession"] = {}

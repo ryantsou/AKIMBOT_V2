@@ -8,8 +8,123 @@ from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHB
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer, Qt
 import martypy
 
+<<<<<<< HEAD
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CALIBRATION_FILE = os.path.join(BASE_DIR, "calibration_couleurs.json")
+=======
+CALIBRATION_FILE = "calibration_couleurs.json"
+
+APP_STYLESHEET = """
+QWidget {
+    background-color: #f4f6f8;
+    color: #2c3e50;
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 13px;
+}
+QScrollArea, QScrollArea > QWidget > QWidget {
+    background-color: #f4f6f8;
+    border: none;
+}
+QGroupBox {
+    background-color: #ffffff;
+    border: 1px solid #d6dbe0;
+    border-radius: 8px;
+    margin-top: 14px;
+    padding: 12px 10px 10px 10px;
+    font-weight: 600;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 12px;
+    padding: 0 6px;
+    color: #2980b9;
+}
+QPushButton {
+    background-color: #ffffff;
+    border: 1px solid #c4ccd4;
+    border-radius: 6px;
+    padding: 7px 12px;
+    min-height: 18px;
+}
+QPushButton:hover {
+    background-color: #eaf2fb;
+    border-color: #2980b9;
+}
+QPushButton:pressed {
+    background-color: #d6e6f7;
+}
+QPushButton:disabled {
+    background-color: #f0f0f0;
+    color: #a0a4a8;
+    border-color: #e4e7ea;
+}
+QPushButton#primary {
+    background-color: #2980b9;
+    color: #ffffff;
+    border: none;
+    font-weight: 600;
+}
+QPushButton#primary:hover {
+    background-color: #2471a3;
+}
+QPushButton#primary:disabled {
+    background-color: #aaccdf;
+    color: #eef3f7;
+}
+QPushButton#act_idle {
+    background-color: #27ae60;
+    color: #ffffff;
+    border: none;
+    font-weight: 600;
+}
+QPushButton#act_idle:hover {
+    background-color: #229954;
+}
+QPushButton#act_running {
+    background-color: #c0392b;
+    color: #ffffff;
+    border: none;
+    font-weight: 600;
+}
+QPushButton#act_running:hover {
+    background-color: #a93226;
+}
+QComboBox, QLineEdit {
+    background-color: #ffffff;
+    border: 1px solid #c4ccd4;
+    border-radius: 6px;
+    padding: 5px 8px;
+    min-height: 18px;
+}
+QComboBox:focus, QLineEdit:focus {
+    border-color: #2980b9;
+}
+QProgressBar {
+    border: 1px solid #c4ccd4;
+    border-radius: 6px;
+    background-color: #ffffff;
+    text-align: center;
+    min-height: 20px;
+}
+QProgressBar::chunk {
+    background-color: #2980b9;
+    border-radius: 5px;
+}
+QTextEdit {
+    background-color: #1e272e;
+    color: #d2dae2;
+    border: 1px solid #c4ccd4;
+    border-radius: 8px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
+    padding: 6px;
+}
+QLabel {
+    background: transparent;
+}
+"""
+>>>>>>> origin/master
 
 class ColorSensor:
 	DEFAULT_COLORS = {
@@ -214,6 +329,10 @@ class MartyController:
 			return None
 
 	def _parse_raw_rgb(self, raw) -> tuple:
+<<<<<<< HEAD
+=======
+		"""Helper pour parser les différents formats de retour des capteurs Marty."""
+>>>>>>> origin/master
 		if isinstance(raw, (tuple, list)) and len(raw) == 3:
 			return raw
 		if isinstance(raw, dict):
@@ -240,6 +359,7 @@ class MartyController:
 
 class DanceParser:
 	_CMDS = {"U", "D", "L", "R", "T"}
+<<<<<<< HEAD
 	_COLOR_KEYS = {
 		"n": "red",
 		"b": "blue",
@@ -288,6 +408,8 @@ class DanceParser:
 			actions = [a.strip().lower() for a in parts[1:] if a.strip()]
 			if actions:
 				act_mapping[color_name] = actions
+=======
+>>>>>>> origin/master
 
 	def parse(self, filepath: str) -> tuple:
 		steps = []
@@ -303,6 +425,7 @@ class DanceParser:
 					if line.upper() == "[SEQUENCE]":
 						current_section = "SEQUENCE"
 						continue
+<<<<<<< HEAD
 					elif line.upper() in {"[ACT]", "ACT"}:
 						current_section = "ACT"
 						continue
@@ -314,6 +437,28 @@ class DanceParser:
 						self._parse_act_line(line, act_mapping)
 					elif current_section == "SEQUENCE":
 						self._parse_sequence_line(line, steps)
+=======
+					elif line.upper() == "[ACT]":
+						current_section = "ACT"
+						continue
+
+					if current_section == "ACT" and ":" in line:
+						color, actions_raw = line.split(":", 1)
+						actions = [a.strip() for a in actions_raw.split(",") if a.strip()]
+						act_mapping[color.strip().lower()] = actions
+					elif current_section == "SEQUENCE" and line.upper().startswith("SEQ"):
+						for token in line[3:].split():
+							if "=" not in token:
+								continue
+							cmd, _, n_str = token.partition("=")
+							cmd = cmd.upper()
+							if cmd not in self._CMDS:
+								continue
+							try:
+								steps.append((cmd, int(n_str)))
+							except ValueError:
+								continue
+>>>>>>> origin/master
 		except Exception as e:
 			print(f"Erreur lecture .dance: {e}")
 		return steps, act_mapping
@@ -364,7 +509,11 @@ class ArbitreAPIClient:
 		self.signals.log_message.emit(f"[API] Envoi : {action_type} (Couleur: {color})")
 		try:
 			response = requests.post(f"{self.base_url}/api/mouvements?robot_id={robot_id}", json=payload, timeout=5)
+<<<<<<< HEAD
 			response.raise_for_status()
+=======
+			response.raise_for_status() # Lève une exception pour les codes d'erreur HTTP
+>>>>>>> origin/master
 			data = response.json()
 			new_score = data.get("new_score", 0)
 			self.signals.log_message.emit(f"[API] Score actuel : {new_score}")
@@ -528,9 +677,14 @@ class MainWindow(QMainWindow):
 		connection_layout.addWidget(self.address_input)
 
 		self.status_label = QLabel("Statut : Déconnecté")
+<<<<<<< HEAD
 		self.status_label.setStyleSheet("color: red;")
+=======
+		self.status_label.setStyleSheet("font-weight: 600; color: #c0392b;")
+>>>>>>> origin/master
 		connection_layout.addWidget(self.status_label)
 		self.btn_connect = QPushButton("Connecter Marty")
+		self.btn_connect.setObjectName("primary")
 		self.btn_connect.clicked.connect(self.connect_marty)
 		connection_layout.addWidget(self.btn_connect)
 		connection_group.setLayout(connection_layout)
@@ -675,7 +829,13 @@ class MainWindow(QMainWindow):
 		self.btn_play_dance.clicked.connect(self.play_dance)
 
 		self.btn_toggle_act = QPushButton("Démarrer Mode Automatique (ACT)")
+<<<<<<< HEAD
 		self.btn_toggle_act.clicked.connect(self.toggle_act_mode)
+=======
+		self.btn_toggle_act.setObjectName("act_idle")
+		self.btn_toggle_act.clicked.connect(self.toggle_act_mode)
+		self.btn_toggle_act.setStyleSheet("background-color: #d5f5e3;")
+>>>>>>> origin/master
 		self.btn_toggle_act.setEnabled(False)
 
 		self.progress_bar = QProgressBar()
@@ -694,6 +854,10 @@ class MainWindow(QMainWindow):
 
 	def _init_right_panel_content(self, layout: QVBoxLayout):
 		logs_title = QLabel("Logs d'activité")
+<<<<<<< HEAD
+=======
+		logs_title.setStyleSheet("font-weight: 600; font-size: 14px; color: #2c3e50;")
+>>>>>>> origin/master
 		self.log_console = QTextEdit()
 		self.log_console.setReadOnly(True)
 		layout.addWidget(logs_title)
@@ -714,13 +878,18 @@ class MainWindow(QMainWindow):
 		self.controller.method = self.method_combo.currentText()
 		self.controller.address = self.address_input.text()
 		self.status_label.setText("Statut : Connexion en cours…")
+<<<<<<< HEAD
 		self.status_label.setStyleSheet("color: blue;")
+=======
+		self.status_label.setStyleSheet("font-weight: 600; color: #e67e22;")
+>>>>>>> origin/master
 		QApplication.processEvents()
 		self.controller.connect()
 
 	def on_connection_status_changed(self, connected: bool):
 		if connected:
 			self.status_label.setText(f"Statut : Connecté ({self.controller.method} - {self.controller.address}) !")
+<<<<<<< HEAD
 			self.status_label.setStyleSheet("color: green;")
 			self._set_controls_enabled(True)
 		else:
@@ -729,6 +898,17 @@ class MainWindow(QMainWindow):
 			self._set_controls_enabled(False)
 
 	def _set_controls_enabled(self, enabled: bool):
+=======
+			self.status_label.setStyleSheet("font-weight: 600; color: #1e8449;")
+			self._set_controls_enabled(True)
+		else:
+			self.status_label.setText("Statut : Échec de la connexion.")
+			self.status_label.setStyleSheet("font-weight: 600; color: #c0392b;")
+			self._set_controls_enabled(False)
+
+	def _set_controls_enabled(self, enabled: bool):
+		# Liste de tous les contrôles qui dépendent de la connexion
+>>>>>>> origin/master
 		controls = [
 			self.btn_walk, self.btn_left, self.btn_test, self.btn_right, self.btn_backward, self.btn_rgb, self.btn_calibrate, self.btn_calibration_dialog, self.btn_battery,
 			self.sensor_source_combo,
@@ -739,7 +919,11 @@ class MainWindow(QMainWindow):
 		]
 		for control in controls:
 			control.setEnabled(enabled)
+<<<<<<< HEAD
 		self.btn_connect.setEnabled(not enabled)
+=======
+		self.btn_connect.setEnabled(not enabled) # Le bouton connecter est l'inverse
+>>>>>>> origin/master
 
 	def toggle_act_mode(self):
 		if self.act_timer.isActive():
@@ -753,15 +937,32 @@ class MainWindow(QMainWindow):
 			return
 		self.act_timer.start(1000)
 		self.btn_toggle_act.setText("ARRÊTER Mode Automatique")
+<<<<<<< HEAD
+=======
+		self._set_act_button_state("act_running")
+>>>>>>> origin/master
 		self.update_log("Mode ACT démarré : surveillance du capteur couleur...")
 
 	def _stop_act_mode(self):
 		self.act_timer.stop()
 		self.is_processing_act = False
 		self.btn_toggle_act.setText("Démarrer Mode Automatique (ACT)")
+<<<<<<< HEAD
 		self.update_log("Mode ACT arrêté.")
 
 	def process_act_loop(self):
+=======
+		self._set_act_button_state("act_idle")
+		self.update_log("Mode ACT arrêté.")
+
+	def _set_act_button_state(self, name: str):
+		self.btn_toggle_act.setObjectName(name)
+		self.btn_toggle_act.style().unpolish(self.btn_toggle_act)
+		self.btn_toggle_act.style().polish(self.btn_toggle_act)
+
+	def process_act_loop(self):
+		"""Boucle ACT : Vérifie les capteurs sous les pieds"""
+>>>>>>> origin/master
 		if self.is_processing_act or not self.controller.connected:
 			return
 
@@ -785,8 +986,13 @@ class MainWindow(QMainWindow):
 								if hasattr(self.controller, action):
 									getattr(self.controller, action)()
 									self.api_client.send_movement(action, color=color_name)
+<<<<<<< HEAD
 								QApplication.processEvents()
 								time.sleep(0.2)
+=======
+								QApplication.processEvents() # Maintient l'UI fluide
+								time.sleep(0.2) # Temps de pause entre les mouvements automatiques
+>>>>>>> origin/master
 							return 
 		finally:
 			self.is_processing_act = False
@@ -830,9 +1036,15 @@ class MainWindow(QMainWindow):
 	def update_movements_verified_ui(self, executed: int, total: int, ok: bool):
 		self.movements_check_label.setText(f"Mouvements : {executed}/{total}")
 		if ok:
+<<<<<<< HEAD
 			self.movements_check_label.setStyleSheet("color: green;")
 		else:
 			self.movements_check_label.setStyleSheet("color: red;")
+=======
+			self.movements_check_label.setStyleSheet("color: #1e8449; font-weight: bold;")
+		else:
+			self.movements_check_label.setStyleSheet("color: #c0392b; font-weight: bold;")
+>>>>>>> origin/master
 
 	def lire_capteur_rgb(self):
 		source = self.sensor_source_combo.currentText()
@@ -854,12 +1066,16 @@ class MainWindow(QMainWindow):
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
 	app.setStyle("Fusion")
+<<<<<<< HEAD
 	
 	style_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "styles.qss")
 	if os.path.exists(style_path):
 		with open(style_path, "r", encoding="utf-8") as f:
 			app.setStyleSheet(f.read())
 			
+=======
+	app.setStyleSheet(APP_STYLESHEET)
+>>>>>>> origin/master
 	signal.signal(signal.SIGINT, signal.SIG_DFL)
 	window = MainWindow()
 	window.show()
