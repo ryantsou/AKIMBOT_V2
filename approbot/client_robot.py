@@ -54,6 +54,7 @@ class ControllerSignals(QObject):
 	battery_updated = pyqtSignal(float)
 	score_updated = pyqtSignal(int)
 	color_detected = pyqtSignal(str)
+	movements_verified = pyqtSignal(int, int, bool)
 
 class MockMarty:
 	def __init__(self, signals: ControllerSignals):
@@ -359,15 +360,26 @@ class ChoreographyPlayer:
 
 	def play(self, steps: list):
 		total = len(steps)
+		executed = 0
 		self.controller.signals.log_message.emit(f"Chorégraphie : {total} étapes.")
 		for idx, (cmd, n) in enumerate(steps, start=1):
 			self.controller.signals.log_message.emit(f"[{idx}/{total}] {cmd}={n}")
 			if self.controller.marty and cmd in self._ACTIONS:
 				self._ACTIONS[cmd](self.controller.marty, n)
-			self.api_client.send_movement(cmd, robot_id="marty_01")
+				executed += 1
+				self.api_client.send_movement(cmd, robot_id="marty_01")
+			else:
+				self.controller.signals.log_message.emit(f"Mouvement ignoré (commande invalide ou robot absent) : {cmd}")
 			time.sleep(0.5)
 			self.controller.signals.dance_progress.emit(idx, total)
 			QApplication.processEvents()
+		ok = executed == total
+		if ok:
+			self.controller.signals.log_message.emit(f"Vérification : {executed}/{total} mouvements exécutés (conforme).")
+		else:
+			self.controller.signals.log_message.emit(f"Vérification : {executed}/{total} mouvements exécutés (écart de {total - executed}).")
+		self.controller.signals.movements_verified.emit(executed, total, ok)
+		return executed
 
 class ArbitreAPIClient:
 	def __init__(self, signals: ControllerSignals, base_url="http://localhost:8000"):
@@ -484,6 +496,7 @@ class MainWindow(QMainWindow):
 		self.controller.signals.battery_updated.connect(self.update_battery_ui)
 		self.controller.signals.score_updated.connect(self.update_score_ui)
 		self.controller.signals.color_detected.connect(self.update_color_ui)
+		self.controller.signals.movements_verified.connect(self.update_movements_verified_ui)
 
 		self.init_ui()
 
@@ -646,11 +659,13 @@ class MainWindow(QMainWindow):
 		self.progress_bar = QProgressBar()
 		self.progress_bar.setRange(0, 100)
 		self.progress_bar.setValue(0)
+		self.movements_check_label = QLabel("Mouvements : -/-")
 		dance_layout.addWidget(self.btn_load_dance)
 		dance_layout.addWidget(self.dance_info_label)
 		dance_layout.addWidget(self.btn_play_dance)
 		dance_layout.addWidget(self.btn_toggle_act)
 		dance_layout.addWidget(self.progress_bar)
+		dance_layout.addWidget(self.movements_check_label)
 		dance_group.setLayout(dance_layout)
 
 		left_panel_layout.addWidget(connection_group)
@@ -781,6 +796,8 @@ class MainWindow(QMainWindow):
 		self.update_log(f"Chargé : {os.path.basename(fileName)} ({n} étapes, {len(self.act_mapping)} règles ACT)")
 		self.btn_play_dance.setEnabled(n > 0 and self.controller.connected)
 		self.progress_bar.setValue(0)
+		self.movements_check_label.setText(f"Mouvements : 0/{n}")
+		self.movements_check_label.setStyleSheet("")
 
 	def play_dance(self):
 		if not self.current_sequence:
@@ -804,6 +821,13 @@ class MainWindow(QMainWindow):
 
 	def update_score_ui(self, score: int):
 		self.score_label.setText(f"Score : {score}")
+
+	def update_movements_verified_ui(self, executed: int, total: int, ok: bool):
+		self.movements_check_label.setText(f"Mouvements : {executed}/{total}")
+		if ok:
+			self.movements_check_label.setStyleSheet("color: #1e8449; font-weight: bold;")
+		else:
+			self.movements_check_label.setStyleSheet("color: #c0392b; font-weight: bold;")
 
 	def update_log(self, message: str):
 		self.log_console.append(message)
