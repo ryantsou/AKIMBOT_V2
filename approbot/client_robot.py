@@ -240,6 +240,54 @@ class MartyController:
 
 class DanceParser:
 	_CMDS = {"U", "D", "L", "R", "T"}
+	_COLOR_KEYS = {
+		"n": "red",
+		"b": "blue",
+		"p": "purple",
+		"y": "yellow",
+		"c": "cyan",
+		"g": "green",
+		"r": "red",
+	}
+
+	def _parse_sequence_line(self, line: str, steps: list):
+		if not line:
+			return
+		upper = line.upper()
+		if upper.startswith("SEQ"):
+			for token in line[3:].split():
+				if "=" not in token:
+					continue
+				cmd, _, n_str = token.partition("=")
+				cmd = cmd.upper()
+				if cmd not in self._CMDS:
+					continue
+				try:
+					steps.append((cmd, int(n_str)))
+				except ValueError:
+					continue
+			return
+		if len(line) >= 2 and line[0].isdigit() and line[1].upper() in self._CMDS:
+			try:
+				steps.append((line[1].upper(), int(line[0])))
+			except ValueError:
+				return
+
+	def _parse_act_line(self, line: str, act_mapping: dict):
+		if not line:
+			return
+		if ":" in line:
+			color, actions_raw = line.split(":", 1)
+			actions = [a.strip() for a in actions_raw.split(",") if a.strip()]
+			act_mapping[color.strip().lower()] = actions
+			return
+		parts = line.split()
+		if len(parts) >= 2:
+			color_code = parts[0].strip().lower()
+			color_name = self._COLOR_KEYS.get(color_code, color_code)
+			actions = [a.strip().lower() for a in parts[1:] if a.strip()]
+			if actions:
+				act_mapping[color_name] = actions
 
 	def parse(self, filepath: str) -> tuple:
 		steps = []
@@ -255,26 +303,17 @@ class DanceParser:
 					if line.upper() == "[SEQUENCE]":
 						current_section = "SEQUENCE"
 						continue
-					elif line.upper() == "[ACT]":
+					elif line.upper() in {"[ACT]", "ACT"}:
 						current_section = "ACT"
 						continue
+					elif line.upper() in {"SEQUENCE", "SEQ"}:
+						current_section = "SEQUENCE"
+						continue
 
-					if current_section == "ACT" and ":" in line:
-						color, actions_raw = line.split(":", 1)
-						actions = [a.strip() for a in actions_raw.split(",") if a.strip()]
-						act_mapping[color.strip().lower()] = actions
-					elif current_section == "SEQUENCE" and line.upper().startswith("SEQ"):
-						for token in line[3:].split():
-							if "=" not in token:
-								continue
-							cmd, _, n_str = token.partition("=")
-							cmd = cmd.upper()
-							if cmd not in self._CMDS:
-								continue
-							try:
-								steps.append((cmd, int(n_str)))
-							except ValueError:
-								continue
+					if current_section == "ACT":
+						self._parse_act_line(line, act_mapping)
+					elif current_section == "SEQUENCE":
+						self._parse_sequence_line(line, steps)
 		except Exception as e:
 			print(f"Erreur lecture .dance: {e}")
 		return steps, act_mapping
