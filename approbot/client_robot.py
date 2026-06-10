@@ -4,11 +4,122 @@ import json
 import math
 import os, requests
 import time
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox, QLineEdit, QFileDialog, QProgressBar, QDialog)
-from PyQt5.QtCore import QObject, pyqtSignal, QTimer
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox, QLineEdit, QFileDialog, QProgressBar, QDialog, QScrollArea, QFrame)
+from PyQt5.QtCore import QObject, pyqtSignal, QTimer, Qt
 import martypy
 
 CALIBRATION_FILE = "calibration_couleurs.json"
+
+APP_STYLESHEET = """
+QWidget {
+    background-color: #f4f6f8;
+    color: #2c3e50;
+    font-family: 'Segoe UI', 'Helvetica Neue', Arial, sans-serif;
+    font-size: 13px;
+}
+QScrollArea, QScrollArea > QWidget > QWidget {
+    background-color: #f4f6f8;
+    border: none;
+}
+QGroupBox {
+    background-color: #ffffff;
+    border: 1px solid #d6dbe0;
+    border-radius: 8px;
+    margin-top: 14px;
+    padding: 12px 10px 10px 10px;
+    font-weight: 600;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: 12px;
+    padding: 0 6px;
+    color: #2980b9;
+}
+QPushButton {
+    background-color: #ffffff;
+    border: 1px solid #c4ccd4;
+    border-radius: 6px;
+    padding: 7px 12px;
+    min-height: 18px;
+}
+QPushButton:hover {
+    background-color: #eaf2fb;
+    border-color: #2980b9;
+}
+QPushButton:pressed {
+    background-color: #d6e6f7;
+}
+QPushButton:disabled {
+    background-color: #f0f0f0;
+    color: #a0a4a8;
+    border-color: #e4e7ea;
+}
+QPushButton#primary {
+    background-color: #2980b9;
+    color: #ffffff;
+    border: none;
+    font-weight: 600;
+}
+QPushButton#primary:hover {
+    background-color: #2471a3;
+}
+QPushButton#primary:disabled {
+    background-color: #aaccdf;
+    color: #eef3f7;
+}
+QPushButton#act_idle {
+    background-color: #27ae60;
+    color: #ffffff;
+    border: none;
+    font-weight: 600;
+}
+QPushButton#act_idle:hover {
+    background-color: #229954;
+}
+QPushButton#act_running {
+    background-color: #c0392b;
+    color: #ffffff;
+    border: none;
+    font-weight: 600;
+}
+QPushButton#act_running:hover {
+    background-color: #a93226;
+}
+QComboBox, QLineEdit {
+    background-color: #ffffff;
+    border: 1px solid #c4ccd4;
+    border-radius: 6px;
+    padding: 5px 8px;
+    min-height: 18px;
+}
+QComboBox:focus, QLineEdit:focus {
+    border-color: #2980b9;
+}
+QProgressBar {
+    border: 1px solid #c4ccd4;
+    border-radius: 6px;
+    background-color: #ffffff;
+    text-align: center;
+    min-height: 20px;
+}
+QProgressBar::chunk {
+    background-color: #2980b9;
+    border-radius: 5px;
+}
+QTextEdit {
+    background-color: #1e272e;
+    color: #d2dae2;
+    border: 1px solid #c4ccd4;
+    border-radius: 8px;
+    font-family: 'Consolas', 'Courier New', monospace;
+    font-size: 12px;
+    padding: 6px;
+}
+QLabel {
+    background: transparent;
+}
+"""
 
 class ColorSensor:
 	DEFAULT_COLORS = {
@@ -475,8 +586,9 @@ class CalibrationDialog(QDialog):
 class MainWindow(QMainWindow):
 	def __init__(self):
 		super().__init__()
-		self.setWindowTitle("AKIMBOT - Client Robot")
-		self.resize(900, 700)
+		self.setWindowTitle("AKIMBOT — Client Robot")
+		self.resize(1000, 760)
+		self.setMinimumSize(820, 620)
         
 		self.controller = MartyController(address="192.168.0.100")
 		self.api_client = ArbitreAPIClient(self.controller.signals)
@@ -503,8 +615,12 @@ class MainWindow(QMainWindow):
 	def init_ui(self):
 		main_widget = QWidget()
 		main_layout = QHBoxLayout(main_widget)
+		main_layout.setContentsMargins(12, 12, 12, 12)
+		main_layout.setSpacing(12)
 
 		left_panel_layout = QVBoxLayout()
+		left_panel_layout.setSpacing(10)
+		left_panel_layout.setContentsMargins(0, 0, 4, 0)
 
 		connection_group = QGroupBox("Connexion")
 		connection_layout = QVBoxLayout()
@@ -521,8 +637,10 @@ class MainWindow(QMainWindow):
 		connection_layout.addWidget(self.address_input)
 
 		self.status_label = QLabel("Statut : Déconnecté")
+		self.status_label.setStyleSheet("font-weight: 600; color: #c0392b;")
 		connection_layout.addWidget(self.status_label)
 		self.btn_connect = QPushButton("Connecter Marty")
+		self.btn_connect.setObjectName("primary")
 		self.btn_connect.clicked.connect(self.connect_marty)
 		connection_layout.addWidget(self.btn_connect)
 		connection_group.setLayout(connection_layout)
@@ -652,9 +770,9 @@ class MainWindow(QMainWindow):
 		self.btn_play_dance.setEnabled(False)
 		
 		self.btn_toggle_act = QPushButton("Démarrer Mode Automatique (ACT)")
+		self.btn_toggle_act.setObjectName("act_idle")
 		self.btn_toggle_act.clicked.connect(self.toggle_act_mode)
 		self.btn_toggle_act.setEnabled(False)
-		self.btn_toggle_act.setStyleSheet("background-color: #d5f5e3;")
 
 		self.progress_bar = QProgressBar()
 		self.progress_bar.setRange(0, 100)
@@ -699,21 +817,32 @@ class MainWindow(QMainWindow):
 		left_panel_layout.addStretch()
 
 		right_panel_layout = QVBoxLayout()
+		right_panel_layout.setContentsMargins(0, 0, 0, 0)
+		right_panel_layout.setSpacing(8)
+		logs_title = QLabel("Logs d'activité")
+		logs_title.setStyleSheet("font-weight: 600; font-size: 14px; color: #2c3e50;")
 		self.log_console = QTextEdit()
 		self.log_console.setReadOnly(True)
-		right_panel_layout.addWidget(QLabel("Logs d'activité :"))
+		right_panel_layout.addWidget(logs_title)
 		right_panel_layout.addWidget(self.log_console)
 
-		main_layout.addLayout(left_panel_layout, 1)
-		main_layout.addLayout(right_panel_layout, 2)
+		left_panel_container = QWidget()
+		left_panel_container.setLayout(left_panel_layout)
+		left_scroll = QScrollArea()
+		left_scroll.setWidgetResizable(True)
+		left_scroll.setFrameShape(QFrame.NoFrame)
+		left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+		left_scroll.setWidget(left_panel_container)
+		left_scroll.setMinimumWidth(370)
+		left_scroll.setMaximumWidth(450)
+
+		right_panel_container = QWidget()
+		right_panel_container.setLayout(right_panel_layout)
+
+		main_layout.addWidget(left_scroll)
+		main_layout.addWidget(right_panel_container, 1)
 
 		self.setCentralWidget(main_widget)
-
-	def update_log(self, message: str):
-		self.log_console.append(message)
-
-	def update_log(self, message: str):
-		self.log_console.append(message)
 
 	def on_method_changed(self, text):
 		if text == "mock":
@@ -726,13 +855,15 @@ class MainWindow(QMainWindow):
 	def connect_marty(self):
 		self.controller.method = self.method_combo.currentText()
 		self.controller.address = self.address_input.text()
-		self.status_label.setText("Connexion en cours...")
+		self.status_label.setText("Statut : Connexion en cours…")
+		self.status_label.setStyleSheet("font-weight: 600; color: #e67e22;")
 		QApplication.processEvents()
 		self.controller.connect()
 
 	def on_connection_status_changed(self, connected: bool):
 		if connected:
 			self.status_label.setText(f"Statut : Connecté ({self.controller.method} - {self.controller.address}) !")
+			self.status_label.setStyleSheet("font-weight: 600; color: #1e8449;")
 			buttons = [
 				self.btn_walk, self.btn_left, self.btn_test, self.btn_right, self.btn_backward, self.btn_rgb, self.btn_calibrate, self.btn_calibration_dialog, self.btn_battery,
 				self.sensor_source_combo,
@@ -746,22 +877,28 @@ class MainWindow(QMainWindow):
 			self.btn_connect.setEnabled(False)
 		else:
 			self.status_label.setText("Statut : Échec de la connexion.")
+			self.status_label.setStyleSheet("font-weight: 600; color: #c0392b;")
 			self.btn_connect.setEnabled(True)
 
 	def toggle_act_mode(self):
 		if self.act_timer.isActive():
 			self.act_timer.stop()
 			self.btn_toggle_act.setText("Démarrer Mode Automatique (ACT)")
-			self.btn_toggle_act.setStyleSheet("background-color: #d5f5e3;")
+			self._set_act_button_state("act_idle")
 			self.update_log("Mode ACT arrêté.")
 		else:
 			if not self.act_mapping:
 				self.update_log("Erreur : Aucune section [ACT] trouvée dans le fichier .dance chargé.")
 				return
-			self.act_timer.start(1000) # Scan toutes les secondes
+			self.act_timer.start(1000)
 			self.btn_toggle_act.setText("ARRÊTER Mode Automatique")
-			self.btn_toggle_act.setStyleSheet("background-color: #fadbd8;")
+			self._set_act_button_state("act_running")
 			self.update_log("Mode ACT démarré : surveillance du capteur couleur...")
+
+	def _set_act_button_state(self, name: str):
+		self.btn_toggle_act.setObjectName(name)
+		self.btn_toggle_act.style().unpolish(self.btn_toggle_act)
+		self.btn_toggle_act.style().polish(self.btn_toggle_act)
 
 	def process_act_loop(self):
 		"""Boucle ACT : Vérifie les capteurs sous les pieds"""
@@ -853,6 +990,8 @@ class MainWindow(QMainWindow):
 
 if __name__ == "__main__":
 	app = QApplication(sys.argv)
+	app.setStyle("Fusion")
+	app.setStyleSheet(APP_STYLESHEET)
 	signal.signal(signal.SIGINT, signal.SIG_DFL)
 	window = MainWindow()
 	window.show()
