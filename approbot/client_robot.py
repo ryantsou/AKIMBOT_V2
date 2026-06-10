@@ -2,21 +2,16 @@ import sys
 import signal
 import json
 import math
-import os
-from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox)
-from PyQt5.QtCore import QObject, pyqtSignal
+import os, requests
+import time
+from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox, QLineEdit, QFileDialog, QProgressBar, QDialog, QScrollArea, QFrame)
+from PyQt5.QtCore import QObject, pyqtSignal, QTimer, Qt
 import martypy
-# import requests
 
-<<<<<<< Updated upstream
-CALIBRATION_FILE = "calibration.json"
-=======
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CALIBRATION_FILE = os.path.join(BASE_DIR, "calibration_couleurs.json")
->>>>>>> Stashed changes
 
 class ColorSensor:
-	# Identifie les couleurs par distance euclidienne RGB avec valeurs calibrables
 	DEFAULT_COLORS = {
 		"red":    [255,   0,   0],
 		"green":  [  0, 255,   0],
@@ -54,33 +49,71 @@ class ColorSensor:
 		return detected if min_dist < sensitivity else "unknown"
 
 class ControllerSignals(QObject):
-	# Définit les signaux émis par le contrôleur pour communiquer avec l'UI
 	log_message = pyqtSignal(str)
 	connection_status = pyqtSignal(bool)
+	dance_progress = pyqtSignal(int, int)
+	battery_updated = pyqtSignal(float)
+	score_updated = pyqtSignal(int)
+	color_detected = pyqtSignal(str)
+	movements_verified = pyqtSignal(int, int, bool)
 
 class MockMarty:
-	# Faux robot pour pouvoir tester l'interface sans le matériel
 	def __init__(self, signals: ControllerSignals):
 		self.signals = signals
 
 	def celebrate(self):
-		self.signals.log_message.emit("[MOCK] Marty fait une danse de célébration !")
-        
-	def walk(self, num_steps=2, turn=0, **kwargs):
-		self.signals.log_message.emit(f"[MOCK] 🚶 Le faux robot marche : {num_steps} pas, rotation {turn}, options: {kwargs}")
+		self.signals.log_message.emit("[MOCK] celebrate()")
 
-	def get_color_sensor_value_by_channel(self, add_on_name: str, channel_index: int) -> int:
-		mock_rgb = {0: 180, 1: 30, 2: 25}  # rouge simulé par défaut
-		return mock_rgb.get(channel_index, 0)
+	def walk(self, num_steps=2, turn=0, **kwargs):
+		self.signals.log_message.emit(f"[MOCK] walk(num_steps={num_steps}, turn={turn})")
+
+	def turn(self, num_steps=2, turn=25, move_time=1500):
+		self.signals.log_message.emit(f"[MOCK] turn(num_steps={num_steps}, turn={turn})")
+
+	def arms(self, left_angle, right_angle, move_time=1000, **kwargs):
+		self.signals.log_message.emit(f"[MOCK] arms(left={left_angle}°, right={right_angle}°)")
+
+	def eyes(self, pose_or_angle, **kwargs):
+		self.signals.log_message.emit(f"[MOCK] eyes({pose_or_angle})")
+
+	def set_color(self, r: int, g: int, b: int):
+		self.signals.log_message.emit(f"[MOCK] set_color(r={r}, g={g}, b={b})")
+
+	def get_color_sensor_value_by_channel(self, add_on_or_side: str, channel: str) -> int:
+		mock_channels = {
+			"left":  {"clear": 235, "red": 180, "green": 30, "blue": 25},
+			"right": {"clear": 235, "red": 30, "green": 180, "blue": 25},
+		}
+		side = add_on_or_side.lower() if isinstance(add_on_or_side, str) else "left"
+		return mock_channels.get(side, mock_channels["left"]).get(str(channel).lower(), 0)
+
+	def get_ground_sensor_reading(self, foot: str) -> tuple:
+		mock_ground_rgb = {
+			"left":  (180, 30, 25),
+			"right": (30, 180, 25),
+		}
+		return mock_ground_rgb.get(foot.lower(), (0, 0, 0))
+
+	def get_battery_remaining(self) -> float:
+		self.signals.log_message.emit("[MOCK] Lecture de la batterie...")
+		return 85.5
+
+	def get_battery_voltage(self) -> float:
+		return 8.2
 
 class MartyController:
-	# Gère la connexion et les commandes directes au robot Marty
 	def __init__(self, method="wifi", address="mock"):
 		self.method = method
 		self.address = address
 		self.connected = False
 		self.marty = None
 		self.signals = ControllerSignals()
+		self.api_client = None
+		self.robot_id = "marty_01"
+
+	def _envoyer(self, action_type: str, color: str = "unknown"):
+		if self.api_client:
+			self.api_client.send_movement(action_type, color, self.robot_id)
 
 	def connect(self):
 		self.signals.log_message.emit(f"Tentative de connexion à Marty via {self.method} sur {self.address}...")
@@ -99,57 +132,87 @@ class MartyController:
 			self.signals.connection_status.emit(False)
 			return False
 
+	def _action(self, message: str, mouvement, action_type: str, echec: str):
+		if not (self.connected and self.marty):
+			self.signals.log_message.emit(echec)
+			return
+		self.signals.log_message.emit(message)
+		mouvement()
+		self._envoyer(action_type)
+
 	def test_mouvement(self):
-		if self.connected and self.marty:
-			self.signals.log_message.emit("Test basique : Marty célèbre !")
-			self.marty.celebrate()
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de tester le mouvement.")
+		self._action("Test basique : Marty célèbre !", lambda: self.marty.celebrate(), "celebrate", "Marty n'est pas connecté. Impossible de tester le mouvement.")
 
 	def avancer(self):
-		if self.connected and self.marty:
-			self.signals.log_message.emit("Action : Marty avance de 4 pas !")
-			self.marty.walk(num_steps=4, turn=0)
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible d'avancer.")
+		self._action("Action : Marty avance de 4 pas !", lambda: self.marty.walk(num_steps=4, turn=0), "walk", "Marty n'est pas connecté. Impossible d'avancer.")
 
 	def reculer(self):
-		if self.connected and self.marty:
-			self.signals.log_message.emit("Action : Marty recule de 4 pas !")
-			self.marty.walk(num_steps=4, step_length=-25, turn=0)
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de reculer.")
+		self._action("Action : Marty recule de 4 pas !", lambda: self.marty.walk(num_steps=4, step_length=-25, turn=0), "walk", "Marty n'est pas connecté. Impossible de reculer.")
 
 	def tourner_gauche(self):
-		if self.connected and self.marty:
-			self.signals.log_message.emit("Action : Marty tourne à gauche !")
-			self.marty.walk(num_steps=2, turn=25)
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de tourner.")
+		self._action("Action : Marty tourne à gauche !", lambda: self.marty.turn(num_steps=2, turn=25), "turn", "Marty n'est pas connecté. Impossible de tourner.")
 
 	def tourner_droite(self):
-		if self.connected and self.marty:
-			self.signals.log_message.emit("Action : Marty tourne à droite !")
-			self.marty.walk(num_steps=2, turn=-25)
-		else:
-			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de tourner.")
+		self._action("Action : Marty tourne à droite !", lambda: self.marty.turn(num_steps=2, turn=-25), "turn", "Marty n'est pas connecté. Impossible de tourner.")
 
-	def lire_rgb(self) -> tuple:
+	def lever_bras_gauche(self):
+		self._action("Action : Marty lève le bras gauche !", lambda: self.marty.arms(100, 0, 1000), "arms", "Marty n'est pas connecté. Impossible de bouger les bras.")
+
+	def baisser_bras_gauche(self):
+		self._action("Action : Marty baisse le bras gauche !", lambda: self.marty.arms(0, 0, 1000), "arms", "Marty n'est pas connecté. Impossible de bouger les bras.")
+
+	def lever_bras_droit(self):
+		self._action("Action : Marty lève le bras droit !", lambda: self.marty.arms(0, 100, 1000), "arms", "Marty n'est pas connecté. Impossible de bouger les bras.")
+
+	def baisser_bras_droit(self):
+		self._action("Action : Marty baisse le bras droit !", lambda: self.marty.arms(0, 0, 1000), "arms", "Marty n'est pas connecté. Impossible de bouger les bras.")
+
+	def bouger_yeux(self, expression: str):
+		self._action(f"Action : Marty change ses yeux ({expression}) !", lambda: self.marty.eyes(expression), "eyes", "Marty n'est pas connecté. Impossible de bouger les yeux.")
+
+	def lire_batterie(self) -> float:
+		if not self.connected or not self.marty:
+			self.signals.log_message.emit("Marty non connecté. Impossible de lire la batterie.")
+			return 0.0
+		try:
+			bat = self.marty.get_battery_remaining()
+			if bat == 0:
+				try:
+					volt = self.marty.get_battery_voltage()
+					self.signals.log_message.emit(f"Alerte : Batterie à 0%. Voltage brut : {volt}V (En charge ?)")
+				except Exception:
+					pass
+			self.signals.log_message.emit(f"Niveau de batterie : {bat}%")
+			self.signals.battery_updated.emit(float(bat))
+			return bat
+		except Exception as e:
+			self.signals.log_message.emit(f"Erreur lecture batterie : {e}")
+			return 0.0
+
+	def lire_rgb(self, source: str = "foot", foot: str = "left", verbose: bool = True) -> tuple:
 		if not self.connected or not self.marty:
 			self.signals.log_message.emit("Marty non connecté. Impossible de lire le capteur couleur.")
 			return None
 		try:
-			r = self.marty.get_color_sensor_value_by_channel("ColorSensor", 0)
-			g = self.marty.get_color_sensor_value_by_channel("ColorSensor", 1)
-			b = self.marty.get_color_sensor_value_by_channel("ColorSensor", 2)
-			self.signals.log_message.emit(f"Capteur couleur brut — R:{r}  G:{g}  B:{b}")
+			if source == "color" and hasattr(self.marty, "get_color_sensor_value_by_channel"):
+				r = self.marty.get_color_sensor_value_by_channel("ColorSensor", 0)
+				g = self.marty.get_color_sensor_value_by_channel("ColorSensor", 1)
+				b = self.marty.get_color_sensor_value_by_channel("ColorSensor", 2)
+				label = "Capteur add-on"
+			elif source == "foot" and hasattr(self.marty, "get_ground_sensor_reading"):
+				raw = self.marty.get_ground_sensor_reading(foot.lower())
+				r, g, b = self._parse_raw_rgb(raw)
+				label = f"Capteur pied ({foot})"
+			else:
+				raise AttributeError("Source de capteur non supportée ou non trouvée.")
+			
+			if verbose:
+				self.signals.log_message.emit(f"{label} brut — R:{r}  G:{g}  B:{b}")
 			return (r, g, b)
 		except Exception as e:
 			self.signals.log_message.emit(f"Erreur lecture capteur couleur : {e}")
 			return None
 
-<<<<<<< Updated upstream
-=======
 	def _parse_raw_rgb(self, raw) -> tuple:
 		if isinstance(raw, (tuple, list)) and len(raw) == 3:
 			return raw
@@ -158,42 +221,107 @@ class MartyController:
 		val = int(raw)
 		return (val, val, val)
 
->>>>>>> Stashed changes
 	def calibrer_couleur(self, couleur: str, color_sensor: ColorSensor):
-		rgb = self.lire_rgb()
+		rgb = self.lire_rgb(source="color") or self.lire_rgb(source="foot", foot="left") or self.lire_rgb(source="foot", foot="right")
 		if rgb is None:
 			return
 		r, g, b = rgb
 		color_sensor.calibrer(couleur, r, g, b)
 		self.signals.log_message.emit(f"Calibration '{couleur}' enregistrée — R:{r}  G:{g}  B:{b}")
 
+	def emotion_celebrer(self):
+		self._action("Émotion : Célébration (LED or) !", lambda: (self.marty.set_color(255, 215, 0), self.marty.celebrate()), "celebrate", "Marty non connecté.")
+
+	def emotion_bras_ouverts(self):
+		self._action("Émotion : Bras ouverts (LED bleu) !", lambda: (self.marty.set_color(0, 0, 255), self.marty.arms(left_angle=100, right_angle=-100)), "arms", "Marty non connecté.")
+
+	def emotion_yeux_wiggle(self):
+		self._action("Émotion : Yeux wiggle (LED violet) !", lambda: (self.marty.set_color(200, 0, 200), self.marty.eyes("wiggle")), "eyes", "Marty non connecté.")
+
 class DanceParser:
-	# Décode les fichiers .dance pour extraire les séquences de mouvements
-	def parse(self, filepath: str) -> list:
-		# TODO: Lire le fichier et parser les instructions
-		print(f"Lecture de la chorégraphie : {filepath}")
-		return []
+	_CMDS = {"U", "D", "L", "R", "T"}
+
+	def parse(self, filepath: str) -> tuple:
+		steps = []
+		act_mapping = {}
+		current_section = "SEQUENCE"
+		try:
+			with open(filepath, "r", encoding="utf-8") as f:
+				for line in f:
+					line = line.strip()
+					if not line or line.startswith("#") or line.startswith("//"):
+						continue
+
+					if line.upper() == "[SEQUENCE]":
+						current_section = "SEQUENCE"
+						continue
+					elif line.upper() == "[ACT]":
+						current_section = "ACT"
+						continue
+
+					if current_section == "ACT" and ":" in line:
+						color, actions_raw = line.split(":", 1)
+						actions = [a.strip() for a in actions_raw.split(",") if a.strip()]
+						act_mapping[color.strip().lower()] = actions
+					elif current_section == "SEQUENCE" and line.upper().startswith("SEQ"):
+						for token in line[3:].split():
+							if "=" not in token:
+								continue
+							cmd, _, n_str = token.partition("=")
+							cmd = cmd.upper()
+							if cmd not in self._CMDS:
+								continue
+							try:
+								steps.append((cmd, int(n_str)))
+							except ValueError:
+								continue
+		except Exception as e:
+			print(f"Erreur lecture .dance: {e}")
+		return steps, act_mapping
 
 class ChoreographyPlayer:
-	# Exécute une liste de mouvements sans bloquer l'interface principale
-	def __init__(self, controller: MartyController):
-		self.controller = controller
+	_ACTIONS = {
+		"U": lambda m, n: m.walk(num_steps=n, turn=0),
+		"D": lambda m, n: m.walk(num_steps=n, step_length=-25, turn=0),
+		"L": lambda m, n: m.turn(num_steps=n, turn=25),
+		"R": lambda m, n: m.turn(num_steps=n, turn=-25),
+		"T": lambda m, n: m.turn(num_steps=n, turn=100),
+	}
 
-	def play(self, sequence: list):
-		# TODO: Exécuter les commandes dans un QThread
-		print(f"Lancement de la chorégraphie ({len(sequence)} mouvements)")
+	def __init__(self, controller: MartyController, api_client: 'ArbitreAPIClient'):
+		self.controller = controller
+		self.api_client = api_client
+
+	def play(self, steps: list):
+		total = len(steps)
+		executed = 0
+		self.controller.signals.log_message.emit(f"Chorégraphie : {total} étapes.")
+		for idx, (cmd, n) in enumerate(steps, start=1):
+			self.controller.signals.log_message.emit(f"[{idx}/{total}] {cmd}={n}")
+			if self.controller.marty and cmd in self._ACTIONS:
+				self._ACTIONS[cmd](self.controller.marty, n)
+				executed += 1
+				self.api_client.send_movement(cmd, robot_id="marty_01")
+			else:
+				self.controller.signals.log_message.emit(f"Mouvement ignoré (commande invalide ou robot absent) : {cmd}")
+			time.sleep(0.5)
+			self.controller.signals.dance_progress.emit(idx, total)
+			QApplication.processEvents()
+		ok = executed == total
+		if ok:
+			self.controller.signals.log_message.emit(f"Vérification : {executed}/{total} mouvements exécutés (conforme).")
+		else:
+			self.controller.signals.log_message.emit(f"Vérification : {executed}/{total} mouvements exécutés (écart de {total - executed}).")
+		self.controller.signals.movements_verified.emit(executed, total, ok)
+		return executed
 
 class ArbitreAPIClient:
-	# Communique avec le serveur REST pour envoyer les actions et récupérer le score
-	def __init__(self, base_url="http://localhost:8000"):
+	def __init__(self, signals: ControllerSignals, base_url="http://localhost:8000"):
 		self.base_url = base_url
+		self.signals = signals
 
-	def send_movement(self, action_type: str, color: str = None):
-		# TODO: Faire un POST via requests
+	def send_movement(self, action_type: str, color: str = "unknown", robot_id: str = "marty_01"):
 		payload = {"action_type": action_type, "color_detected": color}
-<<<<<<< Updated upstream
-		print(f"Envoi de l'action à l'arbitre : {payload}")
-=======
 		self.signals.log_message.emit(f"[API] Envoi : {action_type} (Couleur: {color})")
 		try:
 			response = requests.post(f"{self.base_url}/api/mouvements?robot_id={robot_id}", json=payload, timeout=5)
@@ -277,89 +405,210 @@ class CalibrationDialog(QDialog):
 		self.color_sensor._save()
 		self._status_label.setText("Calibration sauvegardée dans calibration_couleurs.json.")
 
->>>>>>> Stashed changes
 
 class MainWindow(QMainWindow):
-	# Fenêtre principale de l'application PyQt
 	def __init__(self):
 		super().__init__()
-		self.setWindowTitle("AKIMBOT - Client Robot")
-		self.resize(900, 700)
+		self.setWindowTitle("AKIMBOT — Client Robot")
+		self.resize(1000, 760)
+		self.setMinimumSize(820, 620)
         
-		# Instanciation des sous-composants
-		
 		self.controller = MartyController(address="192.168.0.100")
-		self.api_client = ArbitreAPIClient()
+		self.api_client = ArbitreAPIClient(self.controller.signals)
+		self.controller.api_client = self.api_client
 		self.parser = DanceParser()
-		self.player = ChoreographyPlayer(self.controller)
+		self.player = ChoreographyPlayer(self.controller, self.api_client)
 		self.color_sensor = ColorSensor()
+		self.is_processing_act = False
+		self.current_sequence = []
+		self.act_mapping = {}
+		
+		self.act_timer = QTimer()
+		self.act_timer.timeout.connect(self.process_act_loop)
         
-		# Lier les signaux du contrôleur aux slots de la fenêtre
 		self.controller.signals.log_message.connect(self.update_log)
 		self.controller.signals.connection_status.connect(self.on_connection_status_changed)
+		self.controller.signals.dance_progress.connect(self.update_dance_progress)
+		self.controller.signals.battery_updated.connect(self.update_battery_ui)
+		self.controller.signals.score_updated.connect(self.update_score_ui)
+		self.controller.signals.color_detected.connect(self.update_color_ui)
+		self.controller.signals.movements_verified.connect(self.update_movements_verified_ui)
 
-		self.init_ui()
+		self._init_ui()
 
-	def init_ui(self):
-		# Widget central et layout principal horizontal
+	def _init_ui(self):
 		main_widget = QWidget()
 		main_layout = QHBoxLayout(main_widget)
+		main_layout.setContentsMargins(12, 12, 12, 12)
+		main_layout.setSpacing(12)
 
-		# === Panneau de gauche : Contrôles ===
 		left_panel_layout = QVBoxLayout()
+		self._create_connection_group(left_panel_layout)
+		self._create_telemetry_group(left_panel_layout)
+		self._create_manual_controls_group(left_panel_layout)
+		self._create_arms_group(left_panel_layout)
+		self._create_emotions_group(left_panel_layout)
+		self._create_calibration_group(left_panel_layout)
+		self._create_dance_group(left_panel_layout)
+		left_panel_layout.addStretch()
 
-		# Groupe Connexion
+		right_panel_layout = QVBoxLayout()
+		self._init_right_panel_content(right_panel_layout)
+
+		left_panel_container = QWidget()
+		left_panel_container.setLayout(left_panel_layout)
+		left_scroll = QScrollArea()
+		left_scroll.setWidgetResizable(True)
+		left_scroll.setFrameShape(QFrame.NoFrame)
+		left_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+		left_scroll.setWidget(left_panel_container)
+		left_scroll.setMinimumWidth(370)
+		left_scroll.setMaximumWidth(450)
+
+		right_panel_container = QWidget()
+		right_panel_container.setLayout(right_panel_layout)
+
+		main_layout.addWidget(left_scroll)
+		main_layout.addWidget(right_panel_container, 1)
+
+		self.setCentralWidget(main_widget)
+
+	def _create_connection_group(self, parent_layout: QVBoxLayout):
 		connection_group = QGroupBox("Connexion")
 		connection_layout = QVBoxLayout()
+
+		self.method_combo = QComboBox()
+		self.method_combo.addItems(["wifi", "usb", "mock"])
+		self.method_combo.currentTextChanged.connect(self.on_method_changed)
+		connection_layout.addWidget(QLabel("Méthode :"))
+		connection_layout.addWidget(self.method_combo)
+
+		self.address_input = QLineEdit()
+		self.address_input.setText("192.168.0.100")
+		connection_layout.addWidget(QLabel("Adresse (IP, port USB ou mock) :"))
+		connection_layout.addWidget(self.address_input)
+
 		self.status_label = QLabel("Statut : Déconnecté")
-<<<<<<< Updated upstream
-=======
 		self.status_label.setStyleSheet("color: red;")
->>>>>>> Stashed changes
 		connection_layout.addWidget(self.status_label)
 		self.btn_connect = QPushButton("Connecter Marty")
 		self.btn_connect.clicked.connect(self.connect_marty)
 		connection_layout.addWidget(self.btn_connect)
 		connection_group.setLayout(connection_layout)
+		parent_layout.addWidget(connection_group)
 
-		# Groupe Contrôles Manuels (Pad Directionnel)
+	def _create_telemetry_group(self, parent_layout: QVBoxLayout):
+		telemetry_group = QGroupBox("Télémétrie")
+		telemetry_layout = QVBoxLayout()
+		self.battery_label = QLabel("Batterie : Inconnue")
+		self.color_label = QLabel("Couleur détectée : Inconnue")
+		self.score_label = QLabel("Score : 0")
+		self.battery_bar = QProgressBar()
+		self.battery_bar.setRange(0, 100)
+		self.battery_bar.setValue(0)
+		telemetry_layout.addWidget(self.battery_label)
+		telemetry_layout.addWidget(self.battery_bar)
+		telemetry_layout.addWidget(self.color_label)
+		telemetry_layout.addWidget(self.score_label)
+		telemetry_group.setLayout(telemetry_layout)
+		parent_layout.addWidget(telemetry_group)
+
+	def _create_manual_controls_group(self, parent_layout: QVBoxLayout):
 		manual_controls_group = QGroupBox("Piloter Marty")
 		manual_controls_layout = QGridLayout()
         
 		self.btn_walk = QPushButton("Avancer")
-		self.btn_walk.clicked.connect(self.walk_marty)
-		self.btn_walk.setEnabled(False)
-        
-		self.btn_left = QPushButton("Gauche")
-		self.btn_left.clicked.connect(self.left_marty)
-		self.btn_left.setEnabled(False)
-        
-		self.btn_test = QPushButton("Célébrer")
-		self.btn_test.clicked.connect(self.test_marty)
-		self.btn_test.setEnabled(False)
-        
-		self.btn_right = QPushButton("Droite")
-		self.btn_right.clicked.connect(self.right_marty)
-		self.btn_right.setEnabled(False)
-        
+		self.btn_walk.clicked.connect(self.controller.avancer)
+
+		self.btn_left = QPushButton("Tourner Gauche")
+		self.btn_left.clicked.connect(self.controller.tourner_gauche)
+
+		self.btn_test = QPushButton("Tester")
+		self.btn_test.clicked.connect(self.controller.test_mouvement)
+
+		self.btn_right = QPushButton("Tourner Droite")
+		self.btn_right.clicked.connect(self.controller.tourner_droite)
+
 		self.btn_backward = QPushButton("Reculer")
-		self.btn_backward.clicked.connect(self.backward_marty)
-		self.btn_backward.setEnabled(False)
+		self.btn_backward.clicked.connect(self.controller.reculer)
+
+		self.sensor_source_combo = QComboBox()
+		self.sensor_source_combo.addItems(["Pied gauche", "Pied droit", "Capteur couleur"])
+		self.sensor_source_combo.setEnabled(False)
 
 		self.btn_rgb = QPushButton("Lire capteur couleur (RGB)")
 		self.btn_rgb.clicked.connect(self.lire_capteur_rgb)
-		self.btn_rgb.setEnabled(False)
 
-		# Ajout des boutons directionnels à la grille
+		self.btn_battery = QPushButton("Lire Batterie")
+		self.btn_battery.clicked.connect(self.controller.lire_batterie)
+
 		manual_controls_layout.addWidget(self.btn_walk, 0, 1)
 		manual_controls_layout.addWidget(self.btn_left, 1, 0)
 		manual_controls_layout.addWidget(self.btn_test, 1, 1)
 		manual_controls_layout.addWidget(self.btn_right, 1, 2)
 		manual_controls_layout.addWidget(self.btn_backward, 2, 1)
-		manual_controls_layout.addWidget(self.btn_rgb, 3, 0, 1, 3)
+		manual_controls_layout.addWidget(QLabel("Source capteur:"), 3, 0)
+		manual_controls_layout.addWidget(self.sensor_source_combo, 3, 1, 1, 2)
+		manual_controls_layout.addWidget(self.btn_rgb, 4, 0, 1, 3)
+		manual_controls_layout.addWidget(self.btn_battery, 5, 0, 1, 3)
 		manual_controls_group.setLayout(manual_controls_layout)
+		parent_layout.addWidget(manual_controls_group)
 
-		# Groupe Calibration
+	def _create_arms_group(self, parent_layout: QVBoxLayout):
+		arms_group = QGroupBox("Contrôles Bras & Yeux")
+		arms_layout = QGridLayout()
+
+		self.btn_bras_gauche_up = QPushButton("Lever Bras G.")
+		self.btn_bras_gauche_up.clicked.connect(self.controller.lever_bras_gauche)
+
+		self.btn_bras_gauche_down = QPushButton("Baisser Bras G.")
+		self.btn_bras_gauche_down.clicked.connect(self.controller.baisser_bras_gauche)
+
+		self.btn_bras_droit_up = QPushButton("Lever Bras D.")
+		self.btn_bras_droit_up.clicked.connect(self.controller.lever_bras_droit)
+
+		self.btn_bras_droit_down = QPushButton("Baisser Bras D.")
+		self.btn_bras_droit_down.clicked.connect(self.controller.baisser_bras_droit)
+
+		self.btn_yeux_faches = QPushButton("Yeux Fâchés")
+		self.btn_yeux_faches.clicked.connect(lambda checked: self.controller.bouger_yeux("angry"))
+
+		self.btn_yeux_surpris = QPushButton("Yeux Surpris")
+		self.btn_yeux_surpris.clicked.connect(lambda checked: self.controller.bouger_yeux("excited"))
+
+		self.btn_yeux_wiggle = QPushButton("Wiggle (Yeux)")
+		self.btn_yeux_wiggle.clicked.connect(lambda checked: self.controller.bouger_yeux("wiggle"))
+
+		arms_layout.addWidget(self.btn_bras_gauche_up, 0, 0)
+		arms_layout.addWidget(self.btn_bras_gauche_down, 0, 1)
+		arms_layout.addWidget(self.btn_bras_droit_up, 1, 0)
+		arms_layout.addWidget(self.btn_bras_droit_down, 1, 1)
+		arms_layout.addWidget(self.btn_yeux_faches, 2, 0)
+		arms_layout.addWidget(self.btn_yeux_surpris, 2, 1)
+		arms_layout.addWidget(self.btn_yeux_wiggle, 3, 0, 1, 2)
+		arms_group.setLayout(arms_layout)
+		parent_layout.addWidget(arms_group)
+
+	def _create_emotions_group(self, parent_layout: QVBoxLayout):
+		emotions_group = QGroupBox("Émotions")
+		emotions_layout = QVBoxLayout()
+
+		self.btn_emotion_celebrer = QPushButton("Célébration (LED or)")
+		self.btn_emotion_celebrer.clicked.connect(self.controller.emotion_celebrer)
+
+		self.btn_emotion_bras = QPushButton("Bras ouverts (LED bleu)")
+		self.btn_emotion_bras.clicked.connect(self.controller.emotion_bras_ouverts)
+
+		self.btn_emotion_wiggle = QPushButton("Yeux wiggle (LED violet)")
+		self.btn_emotion_wiggle.clicked.connect(self.controller.emotion_yeux_wiggle)
+
+		emotions_layout.addWidget(self.btn_emotion_celebrer)
+		emotions_layout.addWidget(self.btn_emotion_bras)
+		emotions_layout.addWidget(self.btn_emotion_wiggle)
+		emotions_group.setLayout(emotions_layout)
+		parent_layout.addWidget(emotions_group)
+
+	def _create_calibration_group(self, parent_layout: QVBoxLayout):
 		calibration_group = QGroupBox("Calibrer le capteur couleur")
 		calibration_layout = QVBoxLayout()
 		self.color_combo = QComboBox()
@@ -367,19 +616,22 @@ class MainWindow(QMainWindow):
 		calibration_layout.addWidget(self.color_combo)
 		self.btn_calibrate = QPushButton("Calibrer cette couleur")
 		self.btn_calibrate.clicked.connect(self.calibrer_couleur)
-		self.btn_calibrate.setEnabled(False)
 		calibration_layout.addWidget(self.btn_calibrate)
+		self.btn_calibration_dialog = QPushButton("Calibrer les 6 couleurs…")
+		self.btn_calibration_dialog.clicked.connect(self.ouvrir_calibration)
+		calibration_layout.addWidget(self.btn_calibration_dialog)
 		calibration_group.setLayout(calibration_layout)
+		parent_layout.addWidget(calibration_group)
 
-		left_panel_layout.addWidget(connection_group)
-		left_panel_layout.addWidget(manual_controls_group)
-		left_panel_layout.addWidget(calibration_group)
-		left_panel_layout.addStretch()
+	def _create_dance_group(self, parent_layout: QVBoxLayout):
+		dance_group = QGroupBox("Chorégraphie")
+		dance_layout = QVBoxLayout()
+		
+		self.btn_load_dance = QPushButton("Charger .dance")
+		self.btn_load_dance.clicked.connect(self.load_dance_file)
+		
+		self.dance_info_label = QLabel("Aucun fichier chargé")
 
-<<<<<<< Updated upstream
-		# === Panneau de droite : Logs ===
-		right_panel_layout = QVBoxLayout()
-=======
 		self.btn_play_dance = QPushButton("Jouer la séquence")
 		self.btn_play_dance.clicked.connect(self.play_dance)
 
@@ -403,54 +655,33 @@ class MainWindow(QMainWindow):
 
 	def _init_right_panel_content(self, layout: QVBoxLayout):
 		logs_title = QLabel("Logs d'activité")
->>>>>>> Stashed changes
 		self.log_console = QTextEdit()
 		self.log_console.setReadOnly(True)
-		right_panel_layout.addWidget(QLabel("Logs d'activité :"))
-		right_panel_layout.addWidget(self.log_console)
+		layout.addWidget(logs_title)
+		layout.addWidget(self.log_console)
 
-		# Ajout des deux panneaux au layout principal
-		main_layout.addLayout(left_panel_layout, 1)
-		main_layout.addLayout(right_panel_layout, 2)
+	def update_log(self, message: str):
+		self.log_console.append(message)
 
-		self.setCentralWidget(main_widget)
+	def on_method_changed(self, text):
+		if text == "mock":
+			self.address_input.setText("mock")
+		elif text == "wifi":
+			self.address_input.setText("192.168.0.100")
+		elif text == "usb":
+			self.address_input.setText("/dev/ttyUSB0")
 
 	def connect_marty(self):
-<<<<<<< Updated upstream
-		self.status_label.setText("Connexion en cours...")
-=======
 		self.controller.method = self.method_combo.currentText()
 		self.controller.address = self.address_input.text()
 		self.status_label.setText("Statut : Connexion en cours…")
 		self.status_label.setStyleSheet("color: blue;")
->>>>>>> Stashed changes
 		QApplication.processEvents()
 		self.controller.connect()
 
 	def on_connection_status_changed(self, connected: bool):
 		if connected:
 			self.status_label.setText(f"Statut : Connecté ({self.controller.method} - {self.controller.address}) !")
-<<<<<<< Updated upstream
-			for btn in [self.btn_walk, self.btn_left, self.btn_test, self.btn_right, self.btn_backward, self.btn_rgb, self.btn_calibrate]:
-				btn.setEnabled(True)
-			self.btn_connect.setEnabled(False)
-		else:
-			self.status_label.setText("Statut : Échec de la connexion.")
-			self.btn_connect.setEnabled(True)
-
-	def update_log(self, message: str): self.log_console.append(message)
-	def walk_marty(self): self.controller.avancer()
-	def left_marty(self): self.controller.tourner_gauche()
-	def test_marty(self): self.controller.test_mouvement()
-	def right_marty(self): self.controller.tourner_droite()
-	def backward_marty(self): self.controller.reculer()
-	def lire_capteur_rgb(self): self.controller.lire_rgb()
-	def calibrer_couleur(self): self.controller.calibrer_couleur(self.color_combo.currentText(), self.color_sensor)
-
-if __name__ == "__main__":
-	app = QApplication(sys.argv)
-	signal.signal(signal.SIGINT, signal.SIG_DFL)  # Permet de quitter avec Ctrl+C proprement
-=======
 			self.status_label.setStyleSheet("color: green;")
 			self._set_controls_enabled(True)
 		else:
@@ -591,7 +822,6 @@ if __name__ == "__main__":
 			app.setStyleSheet(f.read())
 			
 	signal.signal(signal.SIGINT, signal.SIG_DFL)
->>>>>>> Stashed changes
 	window = MainWindow()
 	window.show()
 	sys.exit(app.exec_())
