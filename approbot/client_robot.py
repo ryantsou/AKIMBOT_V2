@@ -189,16 +189,16 @@ class MockMarty:
 	def set_color(self, r: int, g: int, b: int):
 		self.signals.log_message.emit(f"[MOCK] set_color(r={r}, g={g}, b={b})")
 
-	def get_color_sensor_value_by_channel(self, add_on_name: str, channel_index: int) -> int:
-		mock_rgb = {0: 180, 1: 30, 2: 25}
-		return mock_rgb.get(channel_index, 0)
-
-	def get_ground_sensor_reading(self, foot: str):
-		mock_ground_rgb = {
-			"left":  (180, 30, 25),
-			"right": (30, 180, 25),
+	def get_color_sensor_value_by_channel(self, add_on_or_side: str, channel: str) -> int:
+		mock_channels = {
+			"left":  {"clear": 235, "red": 180, "green": 30, "blue": 25},
+			"right": {"clear": 235, "red": 30, "green": 180, "blue": 25},
 		}
-		return mock_ground_rgb.get(foot.lower(), (0, 0, 0))
+		side = add_on_or_side.lower() if isinstance(add_on_or_side, str) else "left"
+		return mock_channels.get(side, mock_channels["left"]).get(str(channel).lower(), 0)
+
+	def get_ground_sensor_reading(self, add_on_or_side: str) -> int:
+		return 100
 
 	def get_battery_remaining(self) -> float:
 		self.signals.log_message.emit("[MOCK] Lecture de la batterie...")
@@ -295,42 +295,23 @@ class MartyController:
 			self.signals.log_message.emit(f"Erreur lecture batterie : {e}")
 			return 0.0
 
-	def _lire_addon(self) -> tuple:
-		r = self.marty.get_color_sensor_value_by_channel("ColorSensor", 0)
-		g = self.marty.get_color_sensor_value_by_channel("ColorSensor", 1)
-		b = self.marty.get_color_sensor_value_by_channel("ColorSensor", 2)
-		self.signals.log_message.emit(f"Capteur add-on brut — R:{r}  G:{g}  B:{b}")
-		return (r, g, b)
-
-	def _lire_pied(self, foot: str) -> tuple:
-		raw = self.marty.get_ground_sensor_reading(foot.lower())
-		if isinstance(raw, (tuple, list)) and len(raw) == 3:
-			r, g, b = raw
-		elif isinstance(raw, dict):
-			r = int(raw.get("r", raw.get("red", 0)))
-			g = int(raw.get("g", raw.get("green", 0)))
-			b = int(raw.get("b", raw.get("blue", 0)))
-		else:
-			r = g = b = int(raw)
-		self.signals.log_message.emit(f"Capteur pied brut ({foot}) — R:{r}  G:{g}  B:{b}")
+	def _lire_couleur(self, side: str) -> tuple:
+		r = self.marty.get_color_sensor_value_by_channel(side, "red")
+		g = self.marty.get_color_sensor_value_by_channel(side, "green")
+		b = self.marty.get_color_sensor_value_by_channel(side, "blue")
+		self.signals.log_message.emit(f"Capteur couleur ({side}) brut — R:{r}  G:{g}  B:{b}")
 		return (r, g, b)
 
 	def lire_rgb(self, source: str = "foot", foot: str = "left") -> tuple:
 		if not self.connected or not self.marty:
 			self.signals.log_message.emit("Marty non connecté. Impossible de lire le capteur couleur.")
 			return None
-		a_addon = hasattr(self.marty, "get_color_sensor_value_by_channel")
-		a_pied = hasattr(self.marty, "get_ground_sensor_reading")
+		if not hasattr(self.marty, "get_color_sensor_value_by_channel"):
+			self.signals.log_message.emit("Aucun capteur couleur compatible trouvé sur Marty.")
+			return None
+		side = "right" if source != "color" and foot.lower() == "right" else "left"
 		try:
-			if source == "color" and a_addon:
-				return self._lire_addon()
-			if source == "foot" and a_pied:
-				return self._lire_pied(foot)
-			if a_addon:
-				return self._lire_addon()
-			if a_pied:
-				return self._lire_pied(foot)
-			raise AttributeError("Aucun capteur couleur compatible trouvé sur Marty")
+			return self._lire_couleur(side)
 		except Exception as e:
 			self.signals.log_message.emit(f"Erreur lecture capteur couleur : {e}")
 			return None
