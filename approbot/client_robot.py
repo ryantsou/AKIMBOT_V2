@@ -102,6 +102,12 @@ class MartyController:
 		self.connected = False
 		self.marty = None
 		self.signals = ControllerSignals()
+		self.api_client = None
+		self.robot_id = "marty_01"
+
+	def _envoyer(self, action_type: str, color: str = "unknown"):
+		if self.api_client:
+			self.api_client.send_movement(action_type, color, self.robot_id)
 
 	def connect(self):
 		self.signals.log_message.emit(f"Tentative de connexion à Marty via {self.method} sur {self.address}...")
@@ -124,6 +130,7 @@ class MartyController:
 		if self.connected and self.marty:
 			self.signals.log_message.emit("Test basique : Marty célèbre !")
 			self.marty.celebrate()
+			self._envoyer("celebrate")
 		else:
 			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de tester le mouvement.")
 
@@ -131,6 +138,7 @@ class MartyController:
 		if self.connected and self.marty:
 			self.signals.log_message.emit("Action : Marty avance de 4 pas !")
 			self.marty.walk(num_steps=4, turn=0)
+			self._envoyer("walk")
 		else:
 			self.signals.log_message.emit("Marty n'est pas connecté. Impossible d'avancer.")
 
@@ -138,6 +146,7 @@ class MartyController:
 		if self.connected and self.marty:
 			self.signals.log_message.emit("Action : Marty recule de 4 pas !")
 			self.marty.walk(num_steps=4, step_length=-25, turn=0)
+			self._envoyer("walk")
 		else:
 			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de reculer.")
 
@@ -145,6 +154,7 @@ class MartyController:
 		if self.connected and self.marty:
 			self.signals.log_message.emit("Action : Marty tourne à gauche !")
 			self.marty.turn(num_steps=2, turn=25)
+			self._envoyer("turn")
 		else:
 			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de tourner.")
 
@@ -152,6 +162,7 @@ class MartyController:
 		if self.connected and self.marty:
 			self.signals.log_message.emit("Action : Marty tourne à droite !")
 			self.marty.turn(num_steps=2, turn=-25)
+			self._envoyer("turn")
 		else:
 			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de tourner.")
 
@@ -159,6 +170,7 @@ class MartyController:
 		if self.connected and self.marty:
 			self.signals.log_message.emit("Action : Marty lève le bras gauche !")
 			self.marty.arms(100, 0, 1000)
+			self._envoyer("arms")
 		else:
 			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les bras.")
 
@@ -166,6 +178,7 @@ class MartyController:
 		if self.connected and self.marty:
 			self.signals.log_message.emit("Action : Marty baisse le bras gauche !")
 			self.marty.arms(0, 0, 1000)
+			self._envoyer("arms")
 		else:
 			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les bras.")
 
@@ -173,6 +186,7 @@ class MartyController:
 		if self.connected and self.marty:
 			self.signals.log_message.emit("Action : Marty lève le bras droit !")
 			self.marty.arms(0, 100, 1000)
+			self._envoyer("arms")
 		else:
 			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les bras.")
 
@@ -180,6 +194,7 @@ class MartyController:
 		if self.connected and self.marty:
 			self.signals.log_message.emit("Action : Marty baisse le bras droit !")
 			self.marty.arms(0, 0, 1000)
+			self._envoyer("arms")
 		else:
 			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les bras.")
 
@@ -187,6 +202,7 @@ class MartyController:
 		if self.connected and self.marty:
 			self.signals.log_message.emit(f"Action : Marty change ses yeux ({expression}) !")
 			self.marty.eyes(expression)
+			self._envoyer("eyes")
 		else:
 			self.signals.log_message.emit("Marty n'est pas connecté. Impossible de bouger les yeux.")
 
@@ -266,6 +282,7 @@ class MartyController:
 		if self.connected and self.marty:
 			self.marty.set_color(255, 215, 0)
 			self.marty.celebrate()
+			self._envoyer("celebrate")
 			self.signals.log_message.emit("Émotion : Célébration (LED or) !")
 		else:
 			self.signals.log_message.emit("Marty non connecté.")
@@ -274,6 +291,7 @@ class MartyController:
 		if self.connected and self.marty:
 			self.marty.set_color(0, 0, 255)
 			self.marty.arms(left_angle=100, right_angle=-100)
+			self._envoyer("arms")
 			self.signals.log_message.emit("Émotion : Bras ouverts (LED bleu) !")
 		else:
 			self.signals.log_message.emit("Marty non connecté.")
@@ -282,6 +300,7 @@ class MartyController:
 		if self.connected and self.marty:
 			self.marty.set_color(200, 0, 200)
 			self.marty.eyes("wiggle")
+			self._envoyer("eyes")
 			self.signals.log_message.emit("Émotion : Yeux wiggle (LED violet) !")
 		else:
 			self.signals.log_message.emit("Marty non connecté.")
@@ -449,6 +468,7 @@ class MainWindow(QMainWindow):
         
 		self.controller = MartyController(address="192.168.0.100")
 		self.api_client = ArbitreAPIClient(self.controller.signals)
+		self.controller.api_client = self.api_client
 		self.parser = DanceParser()
 		self.player = ChoreographyPlayer(self.controller, self.api_client)
 		self.color_sensor = ColorSensor()
