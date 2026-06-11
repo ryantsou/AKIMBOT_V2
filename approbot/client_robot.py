@@ -338,10 +338,10 @@ class DanceParser:
 		'n': 'black',
 		'b': 'blue',
 		'r': 'red',
-		'p': 'purple',  # Note: 'purple' is not a default sensor color, requires calibration
+		'p': 'purple',  
 		'y': 'yellow',
 		'g': 'green',
-		'c': 'white',   # Assuming 'C' from example.dance maps to 'white'
+		'c': 'white',   
 	}
 
 	def parse(self, filepath: str) -> tuple:
@@ -431,7 +431,7 @@ class ArbitreAPIClient:
 		self.signals.log_message.emit(f"[API] Envoi : {action_type} (Couleur: {color})")
 		try:
 			response = requests.post(f"{self.base_url}/api/mouvements?robot_id={robot_id}", json=payload, timeout=5)
-			response.raise_for_status() # Lève une exception pour les codes d'erreur HTTP
+			response.raise_for_status() 
 			data = response.json()
 			new_score = data.get("new_score", 0)
 			self.signals.log_message.emit(f"[API] Score actuel : {new_score}")
@@ -520,10 +520,7 @@ class MainWindow(QMainWindow):
 		self.setMinimumSize(820, 620)
         
 		self.controller = MartyController(address="192.168.0.100")
-		self.api_client = ArbitreAPIClient(self.controller.signals)
-		self.controller.api_client = self.api_client
 		self.parser = DanceParser()
-		self.player = ChoreographyPlayer(self.controller, self.api_client)
 		self.color_sensor = ColorSensor()
 		self.is_processing_act = False
 		self.current_sequence = []
@@ -531,7 +528,7 @@ class MainWindow(QMainWindow):
 		
 		self.act_timer = QTimer()
 		self.act_timer.timeout.connect(self.process_act_loop)
-        
+
 		self.controller.signals.log_message.connect(self.update_log)
 		self.controller.signals.connection_status.connect(self.on_connection_status_changed)
 		self.controller.signals.dance_progress.connect(self.update_dance_progress)
@@ -541,6 +538,12 @@ class MainWindow(QMainWindow):
 		self.controller.signals.movements_verified.connect(self.update_movements_verified_ui)
 
 		self._init_ui()
+
+		
+		self.api_client = ArbitreAPIClient(self.controller.signals, base_url=self.arbiter_address_input.text())
+		self.controller.api_client = self.api_client
+		self.player = ChoreographyPlayer(self.controller, self.api_client)
+		self.arbiter_address_input.textChanged.connect(self.on_arbiter_address_changed)
 
 	def _init_ui(self):
 		main_widget = QWidget()
@@ -593,6 +596,11 @@ class MainWindow(QMainWindow):
 		self.address_input.setText("192.168.0.100")
 		connection_layout.addWidget(QLabel("Adresse (IP, port USB ou mock) :"))
 		connection_layout.addWidget(self.address_input)
+
+		self.arbiter_address_input = QLineEdit()
+		self.arbiter_address_input.setText("http://localhost:8000")
+		connection_layout.addWidget(QLabel("Adresse du serveur arbitre :"))
+		connection_layout.addWidget(self.arbiter_address_input)
 
 		self.status_label = QLabel("Statut : Déconnecté")
 		self.status_label.setStyleSheet("font-weight: 600; color: #c0392b;")
@@ -773,6 +781,11 @@ class MainWindow(QMainWindow):
 	def update_log(self, message: str):
 		self.log_console.append(message)
 
+	def on_arbiter_address_changed(self, new_address: str):
+		if hasattr(self, 'api_client') and self.api_client:
+			self.api_client.base_url = new_address
+			self.update_log(f"Adresse de l'arbitre mise à jour : {new_address}")
+
 	def on_method_changed(self, text):
 		if text == "mock":
 			self.address_input.setText("mock")
@@ -800,7 +813,7 @@ class MainWindow(QMainWindow):
 			self._set_controls_enabled(False)
 
 	def _set_controls_enabled(self, enabled: bool):
-		# Liste de tous les contrôles qui dépendent de la connexion
+		
 		controls = [
 			self.btn_walk, self.btn_left, self.btn_test, self.btn_right, self.btn_backward, self.btn_rgb, self.btn_calibrate, self.btn_calibration_dialog, self.btn_battery,
 			self.sensor_source_combo,
@@ -811,7 +824,7 @@ class MainWindow(QMainWindow):
 		]
 		for control in controls:
 			control.setEnabled(enabled)
-		self.btn_connect.setEnabled(not enabled) # Le bouton connecter est l'inverse
+		self.btn_connect.setEnabled(not enabled) 
 
 	def toggle_act_mode(self):
 		if self.act_timer.isActive():
@@ -865,8 +878,8 @@ class MainWindow(QMainWindow):
 								if hasattr(self.controller, action):
 									getattr(self.controller, action)()
 									self.api_client.send_movement(action, color=color_name)
-								QApplication.processEvents() # Maintient l'UI fluide
-								time.sleep(0.2) # Temps de pause entre les mouvements automatiques
+								QApplication.processEvents() 
+								time.sleep(0.2) 
 							return 
 		finally:
 			self.is_processing_act = False
