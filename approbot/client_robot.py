@@ -4,6 +4,7 @@ import json
 import math
 import os, requests
 import time
+from urllib.parse import urlparse, urlunparse
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox, QLineEdit, QFileDialog, QProgressBar, QDialog, QScrollArea, QFrame)
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer, Qt
 import martypy
@@ -426,6 +427,24 @@ class ArbitreAPIClient:
 		self.base_url = base_url
 		self.signals = signals
 
+	def test_connection(self):
+		if not self.base_url:
+			self.signals.log_message.emit("[API] Test de connexion échoué : l'adresse de l'arbitre est vide.")
+			return
+		self.signals.log_message.emit(f"[API] Test de connexion à {self.base_url}...")
+		try:
+			response = requests.get(self.base_url, timeout=3)
+			response.raise_for_status()
+			data = response.json()
+			msg = data.get("message", "Message de statut inconnu.")
+			self.signals.log_message.emit(f"[API] Connexion à l'arbitre réussie ! Message : '{msg}'")
+		except requests.exceptions.ConnectionError:
+			self.signals.log_message.emit(f"[API] Échec de la connexion. Vérifiez que le serveur est lancé, que l'IP/port est correct et qu'aucun pare-feu ne bloque le port 8000.")
+		except requests.exceptions.HTTPError as e:
+			self.signals.log_message.emit(f"[API] Erreur HTTP de l'arbitre : {e}")
+		except Exception as e:
+			self.signals.log_message.emit(f"[API] Erreur inattendue lors du test de connexion : {e}")
+
 	def send_movement(self, action_type: str, color: str = "unknown", robot_id: str = "marty_01"):
 		payload = {"action_type": action_type, "color_detected": color}
 		self.signals.log_message.emit(f"[API] Envoi : {action_type} (Couleur: {color})")
@@ -544,6 +563,7 @@ class MainWindow(QMainWindow):
 		self.controller.api_client = self.api_client
 		self.player = ChoreographyPlayer(self.controller, self.api_client)
 		self.arbiter_address_input.textChanged.connect(self.on_arbiter_address_changed)
+		self.btn_test_arbiter.clicked.connect(self.test_arbiter_connection)
 
 	def _init_ui(self):
 		main_widget = QWidget()
@@ -597,10 +617,14 @@ class MainWindow(QMainWindow):
 		connection_layout.addWidget(QLabel("Adresse (IP, port USB ou mock) :"))
 		connection_layout.addWidget(self.address_input)
 
+		arbiter_layout = QHBoxLayout()
 		self.arbiter_address_input = QLineEdit()
 		self.arbiter_address_input.setText("http://localhost:8000")
+		self.btn_test_arbiter = QPushButton("Tester")
+		arbiter_layout.addWidget(self.arbiter_address_input)
+		arbiter_layout.addWidget(self.btn_test_arbiter)
 		connection_layout.addWidget(QLabel("Adresse du serveur arbitre :"))
-		connection_layout.addWidget(self.arbiter_address_input)
+		connection_layout.addLayout(arbiter_layout)
 
 		self.status_label = QLabel("Statut : Déconnecté")
 		self.status_label.setStyleSheet("font-weight: 600; color: #c0392b;")
@@ -781,10 +805,34 @@ class MainWindow(QMainWindow):
 	def update_log(self, message: str):
 		self.log_console.append(message)
 
-	def on_arbiter_address_changed(self, new_address: str):
+	def test_arbiter_connection(self):
 		if hasattr(self, 'api_client') and self.api_client:
-			self.api_client.base_url = new_address
-			self.update_log(f"Adresse de l'arbitre mise à jour : {new_address}")
+			self.api_client.test_connection()
+
+	def on_arbiter_address_changed(self, new_address: str):
+		if not (hasattr(self, 'api_client') and self.api_client):
+			return
+
+		address = new_address.strip()
+		if not address:
+			self.api_client.base_url = ""
+			self.update_log("Adresse de l'arbitre effacée.")
+			return
+
+		self.arbiter_address_input.blockSignals(True)
+		try:
+			if not address.startswith(('http://', 'https://')):
+				address = 'http://' + address
+
+			parsed = urlparse(address)
+			if parsed.hostname and not parsed.port:
+				address = urlunparse(parsed._replace(netloc=f"{parsed.hostname}:8000"))
+
+			self.api_client.base_url = address
+			self.update_log(f"Adresse de l'arbitre mise à jour : {address}")
+			self.arbiter_address_input.setText(address)
+		finally:
+			self.arbiter_address_input.blockSignals(False)
 
 	def on_method_changed(self, text):
 		if text == "mock":
