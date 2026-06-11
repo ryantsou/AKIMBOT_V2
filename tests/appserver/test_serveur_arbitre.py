@@ -1,3 +1,4 @@
+import os
 import pytest
 from fastapi.testclient import TestClient
 import appserver.serveur_arbitre as module
@@ -63,6 +64,54 @@ class TestBattleArbitre:
         session = RobotSession(robot_id="r1", team="blue")
         score = self.arbitre.evaluate_action(MovementAction(action_type="celebrate", color_detected="red"), session)
         assert score == 10
+
+
+class TestBattleFile:
+    def _default_path(self):
+        return os.path.join(os.path.dirname(module.__file__), "default.battle")
+
+    def test_default_battle_file_loads_mvs(self):
+        arbitre = BattleArbitre(self._default_path())
+        assert arbitre.mvs_limit == 50
+
+    def test_default_battle_file_preserves_scoring(self):
+        arbitre = BattleArbitre(self._default_path())
+        session = RobotSession(robot_id="r1", team="blue")
+        assert arbitre.evaluate_action(MovementAction(action_type="walk", color_detected="red"), session) == 6
+
+    def test_missing_file_keeps_defaults(self):
+        arbitre = BattleArbitre("fichier_inexistant.battle")
+        session = RobotSession(robot_id="r1", team="blue")
+        assert arbitre.evaluate_action(MovementAction(action_type="celebrate"), session) == 10
+        assert arbitre.mvs_limit == 0
+
+    def test_custom_rules_and_limit_from_file(self, tmp_path):
+        battle = tmp_path / "custom.battle"
+        battle.write_text("[LIMITE]\nMVS=10\n\n[REGLES]\ncelebrate: 100\ndefault: -5\n", encoding="utf-8")
+        arbitre = BattleArbitre(str(battle))
+        assert arbitre.mvs_limit == 10
+        session = RobotSession(robot_id="r1", team="blue")
+        assert arbitre.evaluate_action(MovementAction(action_type="celebrate"), session) == 100
+        other = RobotSession(robot_id="r2", team="blue")
+        assert arbitre.evaluate_action(MovementAction(action_type="fly"), other) == -5
+
+    def test_color_bonus_parsed_from_file(self, tmp_path):
+        battle = tmp_path / "couleurs.battle"
+        battle.write_text("[REGLES]\nwalk: 2, red=8, green=3\n", encoding="utf-8")
+        arbitre = BattleArbitre(str(battle))
+        session = RobotSession(robot_id="r1", team="blue")
+        assert arbitre.evaluate_action(MovementAction(action_type="walk", color_detected="green"), session) == 5
+
+    def test_limite_atteinte(self, tmp_path):
+        battle = tmp_path / "limite.battle"
+        battle.write_text("[LIMITE]\nMVS=3\n", encoding="utf-8")
+        arbitre = BattleArbitre(str(battle))
+        assert arbitre.limite_atteinte(2) is False
+        assert arbitre.limite_atteinte(3) is True
+
+    def test_no_limit_means_never_reached(self):
+        arbitre = BattleArbitre()
+        assert arbitre.limite_atteinte(9999) is False
 
 
 class TestRouteRoot:
