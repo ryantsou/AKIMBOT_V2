@@ -303,34 +303,20 @@ class MartyController:
 		if not self.connected or not self.marty:
 			self.signals.log_message.emit("Marty non connecté. Impossible de lire le capteur couleur.")
 			return None
+		if not hasattr(self.marty, "get_color_sensor_value_by_channel"):
+			self.signals.log_message.emit("Aucun capteur couleur compatible trouvé sur Marty.")
+			return None
+		side = "right" if source != "color" and foot.lower() == "right" else "left"
 		try:
-			if source == "color" and hasattr(self.marty, "get_color_sensor_value_by_channel"):
-				r = self.marty.get_color_sensor_value_by_channel("ColorSensor", 0)
-				g = self.marty.get_color_sensor_value_by_channel("ColorSensor", 1)
-				b = self.marty.get_color_sensor_value_by_channel("ColorSensor", 2)
-				label = "Capteur add-on"
-			elif source == "foot" and hasattr(self.marty, "get_ground_sensor_reading"):
-				raw = self.marty.get_ground_sensor_reading(foot.lower())
-				r, g, b = self._parse_raw_rgb(raw)
-				label = f"Capteur pied ({foot})"
-			else:
-				raise AttributeError("Source de capteur non supportée ou non trouvée.")
-			
+			r = self.marty.get_color_sensor_value_by_channel(side, "red")
+			g = self.marty.get_color_sensor_value_by_channel(side, "green")
+			b = self.marty.get_color_sensor_value_by_channel(side, "blue")
 			if verbose:
-				self.signals.log_message.emit(f"{label} brut — R:{r}  G:{g}  B:{b}")
+				self.signals.log_message.emit(f"Capteur couleur ({side}) brut — R:{r}  G:{g}  B:{b}")
 			return (r, g, b)
 		except Exception as e:
 			self.signals.log_message.emit(f"Erreur lecture capteur couleur : {e}")
 			return None
-
-	def _parse_raw_rgb(self, raw) -> tuple:
-		"""Helper pour parser les différents formats de retour des capteurs Marty."""
-		if isinstance(raw, (tuple, list)) and len(raw) == 3:
-			return raw
-		if isinstance(raw, dict):
-			return (int(raw.get("r", 0)), int(raw.get("g", 0)), int(raw.get("b", 0)))
-		val = int(raw)
-		return (val, val, val)
 
 	def calibrer_couleur(self, couleur: str, color_sensor: ColorSensor):
 		rgb = self.lire_rgb(source="color") or self.lire_rgb(source="foot", foot="left") or self.lire_rgb(source="foot", foot="right")
