@@ -1,4 +1,5 @@
 import pytest
+from pydantic import ValidationError
 from fastapi.testclient import TestClient
 import appserver.serveur_arbitre as module
 from appserver.serveur_arbitre import app, BattleArbitre, MovementAction, RobotSession
@@ -170,3 +171,37 @@ class TestRouteMouvements:
         client.post("/api/mouvements?robot_id=m_bot6", json={"action_type": "walk"})
         assert "m_bot6" in module.robot_threads
         assert module.robot_threads["m_bot6"].is_alive()
+
+
+class TestMovementParsing:
+    def test_action_type_is_lowercased_and_stripped(self):
+        action = MovementAction(action_type="  WALK ")
+        assert action.action_type == "walk"
+
+    def test_color_is_lowercased_and_stripped(self):
+        action = MovementAction(action_type="walk", color_detected=" RED ")
+        assert action.color_detected == "red"
+
+    def test_unknown_color_becomes_none(self):
+        action = MovementAction(action_type="walk", color_detected="unknown")
+        assert action.color_detected is None
+
+    def test_empty_color_becomes_none(self):
+        action = MovementAction(action_type="walk", color_detected="   ")
+        assert action.color_detected is None
+
+    def test_empty_action_type_is_rejected(self):
+        with pytest.raises(ValidationError):
+            MovementAction(action_type="   ")
+
+    def test_uppercase_payload_still_scores(self):
+        response = client.post(
+            "/api/mouvements?robot_id=parse_bot",
+            json={"action_type": "WALK", "color_detected": "RED"}
+        )
+        assert response.status_code == 200
+        assert response.json()["new_score"] == 6
+
+    def test_empty_action_type_returns_422(self):
+        response = client.post("/api/mouvements?robot_id=parse_bot2", json={"action_type": ""})
+        assert response.status_code == 422

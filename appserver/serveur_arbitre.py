@@ -3,7 +3,7 @@ import sys
 import threading
 import queue
 from fastapi import FastAPI
-from pydantic import BaseModel
+from pydantic import BaseModel, field_validator
 from typing import Optional, Dict
 import uvicorn
 from PyQt5.QtWidgets import (
@@ -41,6 +41,23 @@ class MovementResponse(BaseModel):
 class MovementAction(BaseModel):
     action_type: str
     color_detected: Optional[str] = None
+
+    @field_validator("action_type")
+    @classmethod
+    def _normaliser_action(cls, v: str) -> str:
+        if not isinstance(v, str) or not v.strip():
+            raise ValueError("action_type est requis et doit être une chaîne non vide.")
+        return v.strip().lower()
+
+    @field_validator("color_detected")
+    @classmethod
+    def _normaliser_couleur(cls, v):
+        if v is None:
+            return None
+        v = str(v).strip().lower()
+        if v in ("", "unknown", "none"):
+            return None
+        return v
 
 
 class RobotSession(BaseModel):
