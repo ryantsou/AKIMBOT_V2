@@ -1,0 +1,12 @@
+# Configuration de la battle AKIMBOT
+# [LIMITE] : MVS = nombre maximum de mouvements autorises
+# [REGLES] : action: score_modifier[, couleur=bonus, ...]
+
+[LIMITE]
+MVS=50
+
+[REGLES]
+celebrate: 10
+walk: 1, red=5, blue=2
+turn: 0
+default: -1

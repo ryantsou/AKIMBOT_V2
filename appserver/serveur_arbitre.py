@@ -1,5 +1,6 @@
 ## reset all
 import sys
+import os
 import threading
 import queue
 from fastapi import FastAPI
@@ -67,13 +68,76 @@ class RobotSession(BaseModel):
 
 
 class BattleArbitre:
-    def __init__(self):
-        self.rules = {
-            "celebrate": {"score_modifier": 10},
-            "walk": {"score_modifier": 1, "color_bonus": {"red": 5, "blue": 2}},
-            "turn": {"score_modifier": 0},
-            "default": {"score_modifier": -1},
-        }
+    DEFAULT_RULES = {
+        "celebrate": {"score_modifier": 10},
+        "walk": {"score_modifier": 1, "color_bonus": {"red": 5, "blue": 2}},
+        "turn": {"score_modifier": 0},
+        "default": {"score_modifier": -1},
+    }
+
+    def __init__(self, battle_file: Optional[str] = None):
+        self.rules = {action: dict(rule) for action, rule in self.DEFAULT_RULES.items()}
+        self.mvs_limit = 0
+        if battle_file:
+            self.charger_battle(battle_file)
+
+    def charger_battle(self, battle_file: str) -> bool:
+        if not os.path.exists(battle_file):
+            return False
+        try:
+            rules = {}
+            mvs_limit = self.mvs_limit
+            section = None
+            with open(battle_file, "r", encoding="utf-8") as f:
+                for raw in f:
+                    line = raw.strip()
+                    if not line or line.startswith("#") or line.startswith("//"):
+                        continue
+                    upper = line.upper()
+                    if upper == "[LIMITE]":
+                        section = "LIMITE"
+                        continue
+                    if upper == "[REGLES]":
+                        section = "REGLES"
+                        continue
+                    if section == "LIMITE" and "=" in line:
+                        key, _, value = line.partition("=")
+                        if key.strip().upper() == "MVS":
+                            try:
+                                mvs_limit = int(value.strip())
+                            except ValueError:
+                                continue
+                    elif section == "REGLES" and ":" in line:
+                        action, _, rest = line.partition(":")
+                        tokens = [t.strip() for t in rest.split(",") if t.strip()]
+                        if not tokens:
+                            continue
+                        try:
+                            rule = {"score_modifier": int(tokens[0])}
+                        except ValueError:
+                            continue
+                        color_bonus = {}
+                        for token in tokens[1:]:
+                            if "=" in token:
+                                color, _, bonus = token.partition("=")
+                                try:
+                                    color_bonus[color.strip().lower()] = int(bonus.strip())
+                                except ValueError:
+                                    continue
+                        if color_bonus:
+                            rule["color_bonus"] = color_bonus
+                        rules[action.strip().lower()] = rule
+            if rules:
+                if "default" not in rules:
+                    rules["default"] = dict(self.DEFAULT_RULES["default"])
+                self.rules = rules
+            self.mvs_limit = mvs_limit
+            return True
+        except Exception:
+            return False
+
+    def limite_atteinte(self, nb_mouvements: int) -> bool:
+        return self.mvs_limit > 0 and nb_mouvements >= self.mvs_limit
 
     def evaluate_action(self, action: MovementAction, session: RobotSession):
         score_change = 0
@@ -86,7 +150,8 @@ class BattleArbitre:
         return session.current_score
 
 
-arbitre = BattleArbitre()
+BATTLE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "default.battle")
+arbitre = BattleArbitre(BATTLE_FILE)
 
 
 class RobotThread(threading.Thread):
