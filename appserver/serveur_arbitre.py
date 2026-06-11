@@ -110,7 +110,8 @@ def read_root():
 @app.post("/api/mouvements")
 def receive_movement(action: MovementAction, robot_id: str = "marty_01") -> MovementResponse:
     """Réception d'un mouvement, calcul du score via l'arbitre et retour du nouvel état."""
-    signals.new_log.emit(f"Mouvement reçu de {robot_id} :\n{action.json(indent=4)}")
+    action_json = action.model_dump_json(indent=4) if hasattr(action, "model_dump_json") else action.json(indent=4)
+    signals.new_log.emit(f"Mouvement reçu de {robot_id} :\n{action_json}")
     with robots_lock:
         if robot_id not in robot_sessions:
             robot_sessions[robot_id] = RobotSession(robot_id=robot_id, team="blue", current_score=0)
