@@ -127,6 +127,7 @@ class ColorSensor:
 		"red":    [255,   0,   0],
 		"green":  [  0, 255,   0],
 		"blue":   [  0,   0, 255],
+		"cyan":   [  0, 255, 255],
 		"yellow": [255, 255,   0],
 		"white":  [250, 250, 250],
 		"black":  [ 10,  10,  10],
@@ -136,10 +137,11 @@ class ColorSensor:
 		self.calibration = self._load()
 
 	def _load(self) -> dict:
+		merged = dict(self.DEFAULT_COLORS)
 		if os.path.exists(CALIBRATION_FILE):
 			with open(CALIBRATION_FILE, "r") as f:
-				return json.load(f)
-		return dict(self.DEFAULT_COLORS)
+				merged.update(json.load(f))
+		return merged
 
 	def _save(self):
 		with open(CALIBRATION_FILE, "w") as f:
@@ -165,7 +167,7 @@ class ControllerSignals(QObject):
 	dance_progress = pyqtSignal(int, int)
 	battery_updated = pyqtSignal(float)
 	score_updated = pyqtSignal(int)
-	color_detected = pyqtSignal(str)
+	color_detected = pyqtSignal(str, int, int, int)
 	movements_verified = pyqtSignal(int, int, bool)
 
 class MockMarty:
@@ -464,12 +466,13 @@ class ArbitreAPIClient:
 
 class CalibrationDialog(QDialog):
 	COLORS = [
-		("ROUGE", "red"),
-		("VERT",  "green"),
-		("BLEU",  "blue"),
-		("JAUNE", "yellow"),
-		("NOIR",  "black"),
-		("BLANC", "white"),
+		("ROUGE",      "red"),
+		("VERT",       "green"),
+		("BLEU",       "blue"),
+		("BLEU CLAIR", "cyan"),
+		("JAUNE",      "yellow"),
+		("NOIR",       "black"),
+		("BLANC",      "white"),
 	]
 
 	def __init__(self, controller: MartyController, color_sensor: ColorSensor, parent=None):
@@ -751,7 +754,7 @@ class MainWindow(QMainWindow):
 		calibration_group = QGroupBox("Calibrer le capteur couleur")
 		calibration_layout = QVBoxLayout()
 		self.color_combo = QComboBox()
-		self.color_combo.addItems(["red", "green", "blue", "yellow", "white", "black"])
+		self.color_combo.addItems(["red", "green", "blue", "cyan", "yellow", "white", "black"])
 		calibration_layout.addWidget(self.color_combo)
 		self.btn_calibrate = QPushButton("Calibrer cette couleur")
 		self.btn_calibrate.clicked.connect(self.calibrer_couleur)
@@ -962,8 +965,11 @@ class MainWindow(QMainWindow):
 		self.battery_bar.setValue(int(value))
 		self.battery_label.setText(f"Batterie : {value:.1f}%")
 
-	def update_color_ui(self, color: str):
-		self.color_label.setText(f"Couleur détectée : {color}")
+	def update_color_ui(self, color: str, r: int = 0, g: int = 0, b: int = 0):
+		self.color_label.setText(f"Couleur détectée : {color} — RGB({r}, {g}, {b})")
+		cr, cg, cb = (max(0, min(255, int(v))) for v in (r, g, b))
+		texte = "#000000" if (cr * 299 + cg * 587 + cb * 114) / 1000 > 140 else "#ffffff"
+		self.color_label.setStyleSheet(f"background-color: rgb({cr}, {cg}, {cb}); color: {texte}; padding: 4px 8px; border-radius: 4px; font-weight: 600;")
 
 	def update_score_ui(self, score: int):
 		self.score_label.setText(f"Score : {score}")
@@ -984,7 +990,7 @@ class MainWindow(QMainWindow):
 		if rgb:
 			r, g, b = rgb
 			color = self.color_sensor.identifier(r, g, b)
-			self.controller.signals.color_detected.emit(color)
+			self.controller.signals.color_detected.emit(color, int(r), int(g), int(b))
 
 	def calibrer_couleur(self):
 		self.controller.calibrer_couleur(self.color_combo.currentText(), self.color_sensor)
