@@ -4,12 +4,40 @@ import json
 import math
 import os, requests
 import time
+import threading
 from urllib.parse import urlparse, urlunparse
+from fastapi import FastAPI
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox, QLineEdit, QFileDialog, QProgressBar, QDialog, QScrollArea, QFrame)
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer, Qt
 import martypy
+import uvicorn
 
 CALIBRATION_FILE = "calibration_couleurs.json"
+CLIENT_HEALTH_PORT = int(os.environ.get("AKIMBOT_CLIENT_HEALTH_PORT", "8001"))
+
+client_app = FastAPI(title="AKIMBOT - Client Robot")
+
+
+@client_app.get("/")
+def read_root():
+	return {
+		"status": "ok",
+		"message": "Le Client Robot AKIMBOT est joignable.",
+		"health": f"http://0.0.0.0:{CLIENT_HEALTH_PORT}/health",
+	}
+
+
+@client_app.get("/health")
+def health_check():
+	return {"status": "ok", "message": "Client Robot en ligne"}
+
+
+class ClientHealthServerThread(threading.Thread):
+	def __init__(self):
+		super().__init__(daemon=True)
+
+	def run(self):
+		uvicorn.run(client_app, host="0.0.0.0", port=CLIENT_HEALTH_PORT, log_level="warning")
 
 APP_STYLESHEET = """
 QWidget {
@@ -1005,6 +1033,8 @@ if __name__ == "__main__":
 	app.setStyle("Fusion")
 	app.setStyleSheet(APP_STYLESHEET)
 	signal.signal(signal.SIGINT, signal.SIG_DFL)
+	health_server = ClientHealthServerThread()
+	health_server.start()
 	window = MainWindow()
 	window.show()
 	sys.exit(app.exec_())
