@@ -561,12 +561,14 @@ class MainWindow(QMainWindow):
 
 		self._init_ui()
 
-		
-		self.api_client = ArbitreAPIClient(self.controller.signals, base_url=self.arbiter_address_input.text())
+
+		self.api_client = ArbitreAPIClient(self.controller.signals)
 		self.controller.api_client = self.api_client
 		self.player = ChoreographyPlayer(self.controller, self.api_client)
 		self.arbiter_address_input.textChanged.connect(self.on_arbiter_address_changed)
 		self.btn_test_arbiter.clicked.connect(self.test_arbiter_connection)
+
+		self.on_arbiter_address_changed(self.arbiter_address_input.text())
 
 	def _init_ui(self):
 		main_widget = QWidget()
@@ -622,7 +624,7 @@ class MainWindow(QMainWindow):
 
 		arbiter_layout = QHBoxLayout()
 		self.arbiter_address_input = QLineEdit()
-		self.arbiter_address_input.setText("http://localhost:8000")
+		self.arbiter_address_input.setText("localhost")
 		self.btn_test_arbiter = QPushButton("Tester")
 		arbiter_layout.addWidget(self.arbiter_address_input)
 		arbiter_layout.addWidget(self.btn_test_arbiter)
