@@ -177,9 +177,6 @@ class MockMarty:
 	def walk(self, num_steps=2, turn=0, **kwargs):
 		self.signals.log_message.emit(f"[MOCK] walk(num_steps={num_steps}, turn={turn})")
 
-	def turn(self, num_steps=2, turn=25, move_time=1500):
-		self.signals.log_message.emit(f"[MOCK] turn(num_steps={num_steps}, turn={turn})")
-
 	def arms(self, left_angle, right_angle, move_time=1000, **kwargs):
 		self.signals.log_message.emit(f"[MOCK] arms(left={left_angle}°, right={right_angle}°)")
 
@@ -260,10 +257,10 @@ class MartyController:
 		self._action("Action : Marty recule de 4 pas !", lambda: self.marty.walk(num_steps=4, step_length=-25, turn=0), "walk", "Marty n'est pas connecté. Impossible de reculer.")
 
 	def tourner_gauche(self):
-		self._action("Action : Marty tourne à gauche !", lambda: self.marty.turn(num_steps=2, turn=25), "turn", "Marty n'est pas connecté. Impossible de tourner.")
+		self._action("Action : Marty tourne à gauche !", lambda: self.marty.walk(num_steps=2, turn=25, step_length=0), "turn", "Marty n'est pas connecté. Impossible de tourner.")
 
 	def tourner_droite(self):
-		self._action("Action : Marty tourne à droite !", lambda: self.marty.turn(num_steps=2, turn=-25), "turn", "Marty n'est pas connecté. Impossible de tourner.")
+		self._action("Action : Marty tourne à droite !", lambda: self.marty.walk(num_steps=2, turn=-25, step_length=0), "turn", "Marty n'est pas connecté. Impossible de tourner.")
 
 	def lever_bras_gauche(self):
 		self._action("Action : Marty lève le bras gauche !", lambda: self.marty.arms(100, 0, 1000), "arms", "Marty n'est pas connecté. Impossible de bouger les bras.")
@@ -337,11 +334,20 @@ class MartyController:
 
 class DanceParser:
 	_CMDS = {"U", "D", "L", "R", "T"}
+	_COLOR_MAP = {
+		'n': 'black',
+		'b': 'blue',
+		'r': 'red',
+		'p': 'purple',  # Note: 'purple' is not a default sensor color, requires calibration
+		'y': 'yellow',
+		'g': 'green',
+		'c': 'white',   # Assuming 'C' from example.dance maps to 'white'
+	}
 
 	def parse(self, filepath: str) -> tuple:
 		steps = []
 		act_mapping = {}
-		current_section = "SEQUENCE"
+		current_section = None
 		try:
 			with open(filepath, "r", encoding="utf-8") as f:
 				for line in f:
@@ -349,27 +355,30 @@ class DanceParser:
 					if not line or line.startswith("#") or line.startswith("//"):
 						continue
 
-					if line.upper() == "[SEQUENCE]":
+					upper_line = line.upper()
+					if upper_line.startswith("SEQ"):
 						current_section = "SEQUENCE"
 						continue
-					elif line.upper() == "[ACT]":
+					elif upper_line == "ACT":
 						current_section = "ACT"
 						continue
 
-					if current_section == "ACT" and ":" in line:
-						color, actions_raw = line.split(":", 1)
-						actions = [a.strip() for a in actions_raw.split(",") if a.strip()]
-						act_mapping[color.strip().lower()] = actions
-					elif current_section == "SEQUENCE" and line.upper().startswith("SEQ"):
-						for token in line[3:].split():
-							if "=" not in token:
-								continue
-							cmd, _, n_str = token.partition("=")
-							cmd = cmd.upper()
-							if cmd not in self._CMDS:
-								continue
+					if current_section == "ACT":
+						parts = line.split()
+						if len(parts) >= 2:
+							color_code = parts[0].strip().lower()
+							actions = [a.strip().lower() for a in parts[1:]]
+							color_name = self._COLOR_MAP.get(color_code)
+							if color_name:
+								act_mapping[color_name] = actions
+					elif current_section == "SEQUENCE":
+						if len(line) > 1:
+							cmd = line[-1].upper()
+							n_str = line[:-1]
 							try:
-								steps.append((cmd, int(n_str)))
+								n = int(n_str)
+								if cmd in self._CMDS:
+									steps.append((cmd, n))
 							except ValueError:
 								continue
 		except Exception as e:
@@ -380,9 +389,9 @@ class ChoreographyPlayer:
 	_ACTIONS = {
 		"U": lambda m, n: m.walk(num_steps=n, turn=0),
 		"D": lambda m, n: m.walk(num_steps=n, step_length=-25, turn=0),
-		"L": lambda m, n: m.turn(num_steps=n, turn=25),
-		"R": lambda m, n: m.turn(num_steps=n, turn=-25),
-		"T": lambda m, n: m.turn(num_steps=n, turn=100),
+		"L": lambda m, n: m.walk(num_steps=n, turn=25, step_length=0),
+		"R": lambda m, n: m.walk(num_steps=n, turn=-25, step_length=0),
+		"T": lambda m, n: m.walk(num_steps=n, turn=100, step_length=0),
 	}
 
 	def __init__(self, controller: MartyController, api_client: 'ArbitreAPIClient'):
