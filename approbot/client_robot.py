@@ -4,40 +4,12 @@ import json
 import math
 import os, requests
 import time
-import threading
 from urllib.parse import urlparse, urlunparse
-from fastapi import FastAPI
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QLabel, QVBoxLayout, QHBoxLayout, QWidget, QPushButton, QGroupBox, QTextEdit, QGridLayout, QComboBox, QLineEdit, QFileDialog, QProgressBar, QDialog, QScrollArea, QFrame)
 from PyQt5.QtCore import QObject, pyqtSignal, QTimer, Qt
 import martypy
-import uvicorn
 
 CALIBRATION_FILE = "calibration_couleurs.json"
-CLIENT_HEALTH_PORT = int(os.environ.get("AKIMBOT_CLIENT_HEALTH_PORT", "8001"))
-
-client_app = FastAPI(title="AKIMBOT - Client Robot")
-
-
-@client_app.get("/")
-def read_root():
-	return {
-		"status": "ok",
-		"message": "Le Client Robot AKIMBOT est joignable.",
-		"health": f"http://0.0.0.0:{CLIENT_HEALTH_PORT}/health",
-	}
-
-
-@client_app.get("/health")
-def health_check():
-	return {"status": "ok", "message": "Client Robot en ligne"}
-
-
-class ClientHealthServerThread(threading.Thread):
-	def __init__(self):
-		super().__init__(daemon=True)
-
-	def run(self):
-		uvicorn.run(client_app, host="0.0.0.0", port=CLIENT_HEALTH_PORT, log_level="warning")
 
 APP_STYLESHEET = """
 QWidget {
@@ -336,9 +308,9 @@ class MartyController:
 			return None
 		side = "right" if source != "color" and foot.lower() == "right" else "left"
 		try:
-			r = self.marty.get_color_sensor_value_by_channel(side, "red")
-			g = self.marty.get_color_sensor_value_by_channel(side, "green")
-			b = self.marty.get_color_sensor_value_by_channel(side, "blue")
+			r = int(self.marty.get_color_sensor_value_by_channel(side, "red"))
+			g = int(self.marty.get_color_sensor_value_by_channel(side, "green"))
+			b = int(self.marty.get_color_sensor_value_by_channel(side, "blue"))
 			if verbose:
 				self.signals.log_message.emit(f"Capteur couleur ({side}) brut — R:{r}  G:{g}  B:{b}")
 			return (r, g, b)
@@ -347,12 +319,24 @@ class MartyController:
 			return None
 
 	def calibrer_couleur(self, couleur: str, color_sensor: ColorSensor):
-		rgb = self.lire_rgb(source="color") or self.lire_rgb(source="foot", foot="left") or self.lire_rgb(source="foot", foot="right")
-		if rgb is None:
-			return
-		r, g, b = rgb
-		color_sensor.calibrer(couleur, r, g, b)
-		self.signals.log_message.emit(f"Calibration '{couleur}' enregistrée — R:{r}  G:{g}  B:{b}")
+		self.signals.log_message.emit(f"Calibration en cours pour '{couleur}'... (5 mesures)")
+		prises = 0
+		for _ in range(5):
+			rgb = self.lire_rgb(source="color", verbose=False) or self.lire_rgb(source="foot", foot="left", verbose=False) or self.lire_rgb(source="foot", foot="right", verbose=False)
+			if rgb:
+				color_sensor.ajouter_mesure(couleur, *rgb)
+				prises += 1
+			time.sleep(0.2)
+			QApplication.processEvents()
+		
+		if prises > 0:
+			color_sensor.calculer_zones(couleur)
+			z = color_sensor.zones.get(couleur, {})
+			c = z.get("centre_rgb", [0,0,0])
+			ray = z.get("rayon", 80)
+			self.signals.log_message.emit(f"Calibration '{couleur}' terminée — Centre:{c} Rayon:{ray}")
+		else:
+			self.signals.log_message.emit(f"Erreur : Capteur injoignable pour '{couleur}'.")
 
 	def emotion_celebrer(self):
 		self._action("Émotion : Célébration (LED or) !", lambda: (self.marty.set_color(255, 215, 0), self.marty.celebrate()), "celebrate", "Marty non connecté.")
@@ -477,9 +461,10 @@ class ArbitreAPIClient:
 
 	def send_movement(self, action_type: str, color: str = "unknown", robot_id: str = "marty_01"):
 		payload = {"action_type": action_type, "color_detected": color}
-		self.signals.log_message.emit(f"[API] Envoi : {action_type} (Couleur: {color})")
+		url = f"{self.base_url}/api/mouvements?robot_id={robot_id}"
+		self.signals.log_message.emit(f"[API] Envoi vers {url}")
 		try:
-			response = requests.post(f"{self.base_url}/api/mouvements?robot_id={robot_id}", json=payload, timeout=5)
+			response = requests.post(url, json=payload, timeout=5)
 			response.raise_for_status() 
 			data = response.json()
 			new_score = data.get("new_score", 0)
@@ -507,7 +492,11 @@ class CalibrationDialog(QDialog):
 		super().__init__(parent)
 		self.controller = controller
 		self.color_sensor = color_sensor
-		self.rgb_data = {key: list(color_sensor.calibration.get(key, [0, 0, 0])) for _, key in self.COLORS}
+		self.rgb_data = {}
+		for _, key in self.COLORS:
+			zone = color_sensor.zones.get(key, {})
+			self.rgb_data[key] = zone.get("centre_rgb", [0, 0, 0]) if isinstance(zone, dict) else zone
+
 		self._rgb_labels = {}
 		self.setWindowTitle("Calibration du capteur couleur")
 		self.setMinimumWidth(480)
@@ -546,20 +535,20 @@ class CalibrationDialog(QDialog):
 		layout.addLayout(btn_row)
 
 	def _lire(self, key: str):
-		rgb = self.controller.lire_rgb()
-		if rgb is None:
-			return
+		self.controller.calibrer_couleur(key, self.color_sensor)
+		zone = self.color_sensor.zones.get(key, {})
+		rgb = zone.get("centre_rgb", [0, 0, 0]) if isinstance(zone, dict) else zone
+		
 		r, g, b = rgb
-		self.rgb_data[key] = [r, g, b]
+		self.rgb_data[key] = list(rgb)
 		lbl_r, lbl_g, lbl_b = self._rgb_labels[key]
 		lbl_r.setText(str(r))
 		lbl_g.setText(str(g))
 		lbl_b.setText(str(b))
 
 	def _sauvegarder(self):
-		self.color_sensor.calibration = dict(self.rgb_data)
 		self.color_sensor._save()
-		self._status_label.setText("Calibration sauvegardée dans calibration_couleurs.json.")
+		self._status_label.setText("Calibration (Zones + Rayons) sauvegardée.")
 
 
 class MainWindow(QMainWindow):
@@ -652,7 +641,7 @@ class MainWindow(QMainWindow):
 
 		arbiter_layout = QHBoxLayout()
 		self.arbiter_address_input = QLineEdit()
-		self.arbiter_address_input.setText("localhost")
+		self.arbiter_address_input.setText("localhost") # Saisie de l'IP seulement
 		self.btn_test_arbiter = QPushButton("Tester")
 		arbiter_layout.addWidget(self.arbiter_address_input)
 		arbiter_layout.addWidget(self.btn_test_arbiter)
@@ -843,29 +832,26 @@ class MainWindow(QMainWindow):
 			self.api_client.test_connection()
 
 	def on_arbiter_address_changed(self, new_address: str):
-		if not (hasattr(self, 'api_client') and self.api_client):
+		if not (hasattr(self, "api_client") and self.api_client):
 			return
 
-		address = new_address.strip()
-		if not address:
+		raw_addr = new_address.strip()
+		if not raw_addr:
 			self.api_client.base_url = ""
-			self.update_log("Adresse de l'arbitre effacée.")
 			return
 
-		self.arbiter_address_input.blockSignals(True)
-		try:
-			if not address.startswith(('http://', 'https://')):
-				address = 'http://' + address
+		processed_url = raw_addr
+		if not (processed_url.startswith("http://") or processed_url.startswith("https://")):
+			processed_url = "http://" + processed_url
 
-			parsed = urlparse(address)
-			if parsed.hostname and not parsed.port:
-				address = urlunparse(parsed._replace(netloc=f"{parsed.hostname}:8000"))
+		parsed = urlparse(processed_url)
+		if parsed.hostname and not parsed.port:
+			processed_url = urlunparse(parsed._replace(netloc=f"{parsed.hostname}:8000"))
 
-			self.api_client.base_url = address
-			self.update_log(f"Adresse de l'arbitre mise à jour : {address}")
-			self.arbiter_address_input.setText(address)
-		finally:
-			self.arbiter_address_input.blockSignals(False)
+		if processed_url.endswith("/"):
+			processed_url = processed_url[:-1]
+
+		self.api_client.base_url = processed_url
 
 	def on_method_changed(self, text):
 		if text == "mock":
@@ -1033,8 +1019,6 @@ if __name__ == "__main__":
 	app.setStyle("Fusion")
 	app.setStyleSheet(APP_STYLESHEET)
 	signal.signal(signal.SIGINT, signal.SIG_DFL)
-	health_server = ClientHealthServerThread()
-	health_server.start()
 	window = MainWindow()
 	window.show()
 	sys.exit(app.exec_())
