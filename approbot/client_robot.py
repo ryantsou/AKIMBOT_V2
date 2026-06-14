@@ -11,6 +11,18 @@ import martypy
 
 CALIBRATION_FILE = "calibration_couleurs.json"
 
+COLOR_DISPLAY = {
+	"red":     (220,  30,  30),
+	"green":   ( 30, 180,  70),
+	"blue":    ( 40,  90, 220),
+	"cyan":    (  0, 180, 200),
+	"yellow":  (245, 210,   0),
+	"purple":  (150,  40, 180),
+	"white":   (245, 245, 245),
+	"black":   ( 20,  20,  20),
+	"unknown": (130, 130, 130),
+}
+
 APP_STYLESHEET = """
 QTextEdit {
     font-family: 'Consolas', 'Courier New', monospace;
@@ -122,6 +134,7 @@ class MartyController:
 		self.arm_right = ""
 		self.exp = "XNT"
 		self.current_color = "unknown"
+		self.color_sensor = None
 		self.is_busy = False
 
 	def reset_to_neutral(self):
@@ -216,6 +229,20 @@ class MartyController:
 		self.connected = False
 		self.signals.connection_status.emit(False)
 
+	def _detecter_couleur(self) -> str:
+		if not self.color_sensor:
+			return "unknown"
+		rgb = self.lire_rgb(source="color", verbose=False)
+		if not rgb:
+			rgb = self.lire_rgb(source="foot", foot="left", verbose=False)
+		if not rgb:
+			return "unknown"
+		color = self.color_sensor.identifier(*rgb)
+		r, g, b = rgb
+		self.current_color = color
+		self.signals.color_detected.emit(color, int(r), int(g), int(b))
+		return color
+
 	def _action(self, message: str, mouvement, action_type: str, echec: str):
 		if not (self.connected and self.marty):
 			self.signals.log_message.emit(echec)
@@ -223,12 +250,13 @@ class MartyController:
 		if self.is_busy:
 			self.signals.log_message.emit("⏳ Marty est déjà occupé, commande ignorée.")
 			return
-		
+
 		self.is_busy = True
 		try:
 			self.signals.log_message.emit(message)
 			mouvement()
-			self._envoyer(action_type)
+			color = self._detecter_couleur()
+			self._envoyer(action_type, color)
 		finally:
 			self.is_busy = False
 
@@ -623,6 +651,7 @@ class MainWindow(QMainWindow):
 		self.controller = MartyController(address="192.168.0.100")
 		self.parser = DanceParser()
 		self.color_sensor = ColorSensor()
+		self.controller.color_sensor = self.color_sensor
 		self.is_processing_act = False
 		self.current_sequence = []
 		self.act_mapping = {}
@@ -1073,9 +1102,9 @@ class MainWindow(QMainWindow):
 		self.battery_label.setText(f"Batterie : {value:.1f}%")
 
 	def update_color_ui(self, color: str, r: int = 0, g: int = 0, b: int = 0):
-		self.color_label.setText(f"Couleur : {color.upper()} — RGB({r}, {g}, {b})")
-		cr, cg, cb = (max(0, min(255, int(v))) for v in (r, g, b))
+		cr, cg, cb = COLOR_DISPLAY.get(color, COLOR_DISPLAY["unknown"])
 		texte = "#000000" if (cr * 299 + cg * 587 + cb * 114) / 1000 > 140 else "#ffffff"
+		self.color_label.setText(f"Couleur détectée : {color}")
 		self.color_label.setStyleSheet(f"background-color: rgb({cr}, {cg}, {cb}); color: {texte}; border: 1px solid #aaa; padding: 2px;")
 
 	def update_score_ui(self, score: int):
