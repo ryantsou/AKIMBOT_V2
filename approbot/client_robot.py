@@ -219,11 +219,30 @@ class MartyController:
 		self.marty = None
 		self.signals = ControllerSignals()
 		self.api_client = None
-		self.robot_id = "marty_01"
+
+		self.arm_left = ""
+		self.arm_right = ""
+		self.exp = "XNT"
+		self.current_color = "unknown"
+
+	def reset_posture(self):
+		self.arm_left = ""
+		self.arm_right = ""
+		self.exp = "XNT"
+		self.current_color = "unknown"
 
 	def _envoyer(self, action_type: str, color: str = "unknown"):
 		if self.api_client:
-			self.api_client.send_movement(action_type, color, self.robot_id)
+			c = color if color != "unknown" else self.current_color
+			col_map = {"black": "N", "blue": "B", "red": "R", "purple": "P", "yellow": "Y", "green": "G", "white": "C", "cyan": "C"}
+			col_code = col_map.get(c.lower(), "N")
+
+			arms = []
+			if self.arm_left: arms.append(self.arm_left)
+			if self.arm_right: arms.append(self.arm_right)
+			arm_code = "+".join(arms)
+
+			self.api_client.step(col_code, arm_code, self.exp)
 
 	def connect(self):
 		self.signals.log_message.emit(f"Tentative de connexion à Marty via {self.method} sur {self.address}...")
@@ -266,18 +285,26 @@ class MartyController:
 		self._action("Action : Marty tourne à droite !", lambda: self.marty.walk(num_steps=2, turn=-25, step_length=0), "turn", "Marty n'est pas connecté. Impossible de tourner.")
 
 	def lever_bras_gauche(self):
+		self.arm_left = "ALU"
 		self._action("Action : Marty lève le bras gauche !", lambda: self.marty.arms(100, 0, 1000), "arms", "Marty n'est pas connecté. Impossible de bouger les bras.")
 
 	def baisser_bras_gauche(self):
+		self.arm_left = ""
 		self._action("Action : Marty baisse le bras gauche !", lambda: self.marty.arms(0, 0, 1000), "arms", "Marty n'est pas connecté. Impossible de bouger les bras.")
 
 	def lever_bras_droit(self):
+		self.arm_right = "ARU"
 		self._action("Action : Marty lève le bras droit !", lambda: self.marty.arms(0, 100, 1000), "arms", "Marty n'est pas connecté. Impossible de bouger les bras.")
 
 	def baisser_bras_droit(self):
+		self.arm_right = ""
 		self._action("Action : Marty baisse le bras droit !", lambda: self.marty.arms(0, 0, 1000), "arms", "Marty n'est pas connecté. Impossible de bouger les bras.")
 
 	def bouger_yeux(self, expression: str):
+		if expression == "angry": self.exp = "XNG"
+		elif expression == "excited": self.exp = "XDN"
+		elif expression == "wiggle": self.exp = "XDN"
+		else: self.exp = "XNT"
 		self._action(f"Action : Marty change ses yeux ({expression}) !", lambda: self.marty.eyes(expression), "eyes", "Marty n'est pas connecté. Impossible de bouger les yeux.")
 
 	def lire_batterie(self) -> float:
@@ -339,12 +366,17 @@ class MartyController:
 			self.signals.log_message.emit(f"Erreur : Capteur injoignable pour '{couleur}'.")
 
 	def emotion_celebrer(self):
+		self.exp = "XHP"
 		self._action("Émotion : Célébration (LED or) !", lambda: (self.marty.set_color(255, 215, 0), self.marty.celebrate()), "celebrate", "Marty non connecté.")
 
 	def emotion_bras_ouverts(self):
+		self.arm_left = "ALU"
+		self.arm_right = "ARU"
+		self.exp = "XSD"
 		self._action("Émotion : Bras ouverts (LED bleu) !", lambda: (self.marty.set_color(0, 0, 255), self.marty.arms(left_angle=100, right_angle=-100)), "arms", "Marty non connecté.")
 
 	def emotion_yeux_wiggle(self):
+		self.exp = "XDN"
 		self._action("Émotion : Yeux wiggle (LED violet) !", lambda: (self.marty.set_color(200, 0, 200), self.marty.eyes("wiggle")), "eyes", "Marty non connecté.")
 
 class DanceParser:
@@ -417,17 +449,21 @@ class ChoreographyPlayer:
 		total = len(steps)
 		executed = 0
 		self.controller.signals.log_message.emit(f"Chorégraphie : {total} étapes.")
+		self.api_client.start()
 		for idx, (cmd, n) in enumerate(steps, start=1):
 			self.controller.signals.log_message.emit(f"[{idx}/{total}] {cmd}={n}")
 			if self.controller.marty and cmd in self._ACTIONS:
+				self.controller.reset_posture()
 				self._ACTIONS[cmd](self.controller.marty, n)
 				executed += 1
-				self.api_client.send_movement(cmd, robot_id="marty_01")
+				self.controller._envoyer(cmd)
 			else:
 				self.controller.signals.log_message.emit(f"Mouvement ignoré (commande invalide ou robot absent) : {cmd}")
 			time.sleep(0.5)
 			self.controller.signals.dance_progress.emit(idx, total)
 			QApplication.processEvents()
+
+		self.api_client.bye()
 		ok = executed == total
 		if ok:
 			self.controller.signals.log_message.emit(f"Vérification : {executed}/{total} mouvements exécutés (conforme).")
@@ -440,42 +476,72 @@ class ArbitreAPIClient:
 	def __init__(self, signals: ControllerSignals, base_url="http://localhost:8000"):
 		self.base_url = base_url
 		self.signals = signals
+		self.rid = None
 
 	def test_connection(self):
 		if not self.base_url:
-			self.signals.log_message.emit("[API] Test de connexion échoué : l'adresse de l'arbitre est vide.")
-			return
+			self.signals.log_message.emit("[API] Adresse vide.")
+			return False
 		self.signals.log_message.emit(f"[API] Test de connexion à {self.base_url}...")
 		try:
 			response = requests.get(self.base_url, timeout=3)
 			response.raise_for_status()
 			data = response.json()
-			msg = data.get("message", "Message de statut inconnu.")
-			self.signals.log_message.emit(f"[API] Connexion à l'arbitre réussie ! Message : '{msg}'")
-		except requests.exceptions.ConnectionError:
-			self.signals.log_message.emit(f"[API] Échec de la connexion. Vérifiez que le serveur est lancé, que l'IP/port est correct et qu'aucun pare-feu ne bloque le port 8000.")
-		except requests.exceptions.HTTPError as e:
-			self.signals.log_message.emit(f"[API] Erreur HTTP de l'arbitre : {e}")
+			v = data.get("version", "?")
+			self.signals.log_message.emit(f"[API] Serveur arbitre dispo (version {v})")
+			return True
 		except Exception as e:
-			self.signals.log_message.emit(f"[API] Erreur inattendue lors du test de connexion : {e}")
+			self.signals.log_message.emit(f"[API] Erreur connexion arbitre : {e}")
+			return False
 
-	def send_movement(self, action_type: str, color: str = "unknown", robot_id: str = "marty_01"):
-		payload = {"action_type": action_type, "color_detected": color}
-		url = f"{self.base_url}/api/mouvements?robot_id={robot_id}"
-		self.signals.log_message.emit(f"[API] Envoi vers {url}")
+	def hello(self):
+		if not self.base_url: return
 		try:
-			response = requests.post(url, json=payload, timeout=5)
-			response.raise_for_status() 
-			data = response.json()
-			new_score = data.get("new_score", 0)
-			self.signals.log_message.emit(f"[API] Score actuel : {new_score}")
-			self.signals.score_updated.emit(new_score)
-		except requests.exceptions.ConnectionError:
-			self.signals.log_message.emit(f"[API] Erreur de connexion à l'arbitre à {self.base_url}")
-		except requests.exceptions.HTTPError as e:
-			self.signals.log_message.emit(f"[API] Erreur HTTP de l'arbitre : {e} - {e.response.text}")
+			r = requests.post(f"{self.base_url}/hello", timeout=3)
+			r.raise_for_status()
+			self.rid = r.json().get("rid", "")
+			self.signals.log_message.emit(f"[API] Robot enregistré (rid: {self.rid})")
 		except Exception as e:
-			self.signals.log_message.emit(f"[API] Erreur inattendue lors de l'envoi à l'arbitre : {e}")
+			self.signals.log_message.emit(f"[API] Erreur /hello : {e}")
+
+	def start(self):
+		if not self.base_url or not self.rid: return
+		try:
+			r = requests.post(f"{self.base_url}/start", json={"rid": self.rid}, timeout=3)
+			r.raise_for_status()
+			steps = r.json().get("steps", 0)
+			self.signals.log_message.emit(f"[API] Chorégraphie démarrée. Pas attendus : {steps}")
+		except Exception as e:
+			self.signals.log_message.emit(f"[API] Erreur /start : {e}")
+
+	def step(self, col: str, arm: str, exp: str):
+		if not self.base_url or not self.rid: return
+		try:
+			payload = {"rid": self.rid, "col": col, "arm": arm, "exp": exp}
+			r = requests.post(f"{self.base_url}/step", json=payload, timeout=3)
+			r.raise_for_status()
+			self.get_score()
+		except Exception as e:
+			self.signals.log_message.emit(f"[API] Erreur /step : {e}")
+
+	def get_score(self):
+		if not self.base_url or not self.rid: return
+		try:
+			r = requests.get(f"{self.base_url}/score", json={"rid": self.rid}, timeout=3)
+			r.raise_for_status()
+			pts = r.json().get("points", 0)
+			self.signals.score_updated.emit(pts)
+		except Exception as e:
+			pass
+
+	def bye(self):
+		if not self.base_url or not self.rid: return
+		try:
+			requests.post(f"{self.base_url}/bye", json={"rid": self.rid}, timeout=3)
+			self.rid = None
+			self.signals.log_message.emit("[API] Déconnecté de l'arbitre.")
+		except Exception as e:
+			pass
 
 class CalibrationDialog(QDialog):
 	COLORS = [
@@ -799,7 +865,6 @@ class MainWindow(QMainWindow):
 		self.btn_toggle_act = QPushButton("Démarrer Mode Automatique (ACT)")
 		self.btn_toggle_act.setObjectName("act_idle")
 		self.btn_toggle_act.clicked.connect(self.toggle_act_mode)
-		self.btn_toggle_act.setStyleSheet("background-color: #d5f5e3;")
 		self.btn_toggle_act.setEnabled(False)
 
 		self.progress_bar = QProgressBar()
@@ -829,7 +894,8 @@ class MainWindow(QMainWindow):
 
 	def test_arbiter_connection(self):
 		if hasattr(self, 'api_client') and self.api_client:
-			self.api_client.test_connection()
+			if self.api_client.test_connection():
+				self.api_client.hello()
 
 	def on_arbiter_address_changed(self, new_address: str):
 		if not (hasattr(self, "api_client") and self.api_client):
@@ -887,10 +953,11 @@ class MainWindow(QMainWindow):
 			self.btn_bras_gauche_up, self.btn_bras_gauche_down, self.btn_bras_droit_up, self.btn_bras_droit_down,
 			self.btn_yeux_faches, self.btn_yeux_surpris, self.btn_yeux_wiggle,
 			self.btn_emotion_celebrer, self.btn_emotion_bras, self.btn_emotion_wiggle,
-			self.btn_load_dance, self.btn_play_dance, self.btn_toggle_act
+			self.btn_load_dance, self.btn_play_dance
 		]
 		for control in controls:
 			control.setEnabled(enabled)
+		self.btn_toggle_act.setEnabled(enabled and len(self.act_mapping) > 0)
 		self.btn_connect.setEnabled(not enabled) 
 
 	def toggle_act_mode(self):
@@ -941,12 +1008,13 @@ class MainWindow(QMainWindow):
 						actions = self.act_mapping.get(color_name)
 						if actions:
 							self.update_log(f"[ACT] {name} a vu {color_name.upper()} -> Actions : {', '.join(actions)}")
+							self.controller.current_color = color_name
 							for action in actions:
 								if hasattr(self.controller, action):
 									getattr(self.controller, action)()
-									self.api_client.send_movement(action, color=color_name)
 								QApplication.processEvents() 
 								time.sleep(0.2) 
+							self.controller.reset_posture()
 							return 
 		finally:
 			self.is_processing_act = False
@@ -960,6 +1028,7 @@ class MainWindow(QMainWindow):
 		self.dance_info_label.setText(f"{os.path.basename(fileName)} — {n} étape(s)")
 		self.update_log(f"Chargé : {os.path.basename(fileName)} ({n} étapes, {len(self.act_mapping)} règles ACT)")
 		self.btn_play_dance.setEnabled(n > 0 and self.controller.connected)
+		self.btn_toggle_act.setEnabled(len(self.act_mapping) > 0 and self.controller.connected)
 		self.progress_bar.setValue(0)
 		self.movements_check_label.setText(f"Mouvements : 0/{n}")
 		self.movements_check_label.setStyleSheet("")
