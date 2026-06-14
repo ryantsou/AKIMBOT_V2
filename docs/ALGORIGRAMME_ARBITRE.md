@@ -11,8 +11,8 @@ graph TD
     
     Valid -- Non --> Err[Erreur 400 Bad Request]
     
-    Valid -- Oui --> Evaluate[BattleArbitre.evaluate\nÉvaluation de col, arm, exp]
-    Evaluate --> Rule[Vérification des règles + et , dans .battle]
+    Valid -- Oui --> Evaluate["BattleArbitre.evaluate\nÉvaluation de col, arm, exp"]
+    Evaluate --> Rule["Vérification des règles + et , dans .battle"]
     
     Rule --> Match{Règle trouvée dans .battle ?}
     

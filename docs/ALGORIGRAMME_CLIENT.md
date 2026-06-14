@@ -23,7 +23,7 @@ graph TD
 
     Found -- Oui --> Execute[Exécution du mouvement\nChoreographyPlayer.play\nMartyController.test_mouvement]
 
-    Execute --> Report[Envoi état (col, arm, exp) au serveur arbitre\nArbitreAPIClient.step]
+    Execute --> Report["Envoi état (col, arm, exp) au serveur arbitre\nArbitreAPIClient.step"]
 
     Report --> Response{Réponse HTTP 200 ?}
 
