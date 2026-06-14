@@ -11,6 +11,17 @@ import martypy
 
 CALIBRATION_FILE = "calibration_couleurs.json"
 
+COLOR_DISPLAY = {
+	"red":    (220,  30,  30),
+	"green":  ( 30, 180,  70),
+	"blue":   ( 40,  90, 220),
+	"cyan":   (  0, 180, 200),
+	"yellow": (245, 210,   0),
+	"white":  (245, 245, 245),
+	"black":  ( 20,  20,  20),
+	"unknown":(130, 130, 130),
+}
+
 APP_STYLESHEET = """
 QWidget {
     background-color: #f4f6f8;
@@ -167,7 +178,7 @@ class ControllerSignals(QObject):
 	dance_progress = pyqtSignal(int, int)
 	battery_updated = pyqtSignal(float)
 	score_updated = pyqtSignal(int)
-	color_detected = pyqtSignal(str, int, int, int)
+	color_detected = pyqtSignal(str)
 	movements_verified = pyqtSignal(int, int, bool)
 
 class MockMarty:
@@ -220,10 +231,21 @@ class MartyController:
 		self.signals = ControllerSignals()
 		self.api_client = None
 		self.robot_id = "marty_01"
+		self.color_sensor = None
 
 	def _envoyer(self, action_type: str, color: str = "unknown"):
 		if self.api_client:
 			self.api_client.send_movement(action_type, color, self.robot_id)
+
+	def _detecter_couleur(self) -> str:
+		if not self.color_sensor:
+			return "unknown"
+		rgb = self.lire_rgb(verbose=False)
+		if not rgb:
+			return "unknown"
+		color = self.color_sensor.identifier(*rgb)
+		self.signals.color_detected.emit(color)
+		return color
 
 	def connect(self):
 		self.signals.log_message.emit(f"Tentative de connexion à Marty via {self.method} sur {self.address}...")
@@ -248,7 +270,8 @@ class MartyController:
 			return
 		self.signals.log_message.emit(message)
 		mouvement()
-		self._envoyer(action_type)
+		color = self._detecter_couleur()
+		self._envoyer(action_type, color)
 
 	def test_mouvement(self):
 		self._action("Test basique : Marty célèbre !", lambda: self.marty.celebrate(), "celebrate", "Marty n'est pas connecté. Impossible de tester le mouvement.")
@@ -544,6 +567,7 @@ class MainWindow(QMainWindow):
 		self.controller = MartyController(address="192.168.0.100")
 		self.parser = DanceParser()
 		self.color_sensor = ColorSensor()
+		self.controller.color_sensor = self.color_sensor
 		self.is_processing_act = False
 		self.current_sequence = []
 		self.act_mapping = {}
@@ -965,10 +989,10 @@ class MainWindow(QMainWindow):
 		self.battery_bar.setValue(int(value))
 		self.battery_label.setText(f"Batterie : {value:.1f}%")
 
-	def update_color_ui(self, color: str, r: int = 0, g: int = 0, b: int = 0):
-		self.color_label.setText(f"Couleur détectée : {color} — RGB({r}, {g}, {b})")
-		cr, cg, cb = (max(0, min(255, int(v))) for v in (r, g, b))
+	def update_color_ui(self, color: str):
+		cr, cg, cb = COLOR_DISPLAY.get(color, COLOR_DISPLAY["unknown"])
 		texte = "#000000" if (cr * 299 + cg * 587 + cb * 114) / 1000 > 140 else "#ffffff"
+		self.color_label.setText(f"Couleur détectée : {color}")
 		self.color_label.setStyleSheet(f"background-color: rgb({cr}, {cg}, {cb}); color: {texte}; padding: 4px 8px; border-radius: 4px; font-weight: 600;")
 
 	def update_score_ui(self, score: int):
@@ -990,7 +1014,7 @@ class MainWindow(QMainWindow):
 		if rgb:
 			r, g, b = rgb
 			color = self.color_sensor.identifier(r, g, b)
-			self.controller.signals.color_detected.emit(color, int(r), int(g), int(b))
+			self.controller.signals.color_detected.emit(color)
 
 	def calibrer_couleur(self):
 		self.controller.calibrer_couleur(self.color_combo.currentText(), self.color_sensor)
