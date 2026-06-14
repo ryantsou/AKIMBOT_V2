@@ -225,17 +225,57 @@ class MartyController:
 		self.exp = "XNT"
 		self.current_color = "unknown"
 
-	def reset_posture(self):
+	def reset_to_neutral(self):
 		self.arm_left = ""
 		self.arm_right = ""
 		self.exp = "XNT"
-		self.current_color = "unknown"
+		self.current_color = "N"
+		if not self.connected or not self.marty: return
+		try:
+			self.marty.arms(0, 0, 500)
+			self.marty.eyes("normal")
+			self.marty.set_color(0, 0, 0)
+		except: pass
+
+	def apply_act_state(self, actions: list):
+		if not self.connected or not self.marty: return
+		left_angle = 0
+		right_angle = 0
+		for act in actions:
+			if act == "ALU": self.arm_left = "ALU"; left_angle = 100
+			elif act == "ALB": self.arm_left = "ALB"; left_angle = -100
+			elif act == "ARU": self.arm_right = "ARU"; right_angle = 100
+			elif act == "ARB": self.arm_right = "ARB"; right_angle = -100
+			elif act in ["XNT", "XSD", "XNG", "XHP", "XDN"]:
+				self.exp = act
+		try:
+			self.marty.arms(left_angle, right_angle, 500)
+			if self.exp == "XNT":
+				self.marty.eyes("normal")
+				self.marty.set_color(0, 0, 0)
+			elif self.exp == "XSD":
+				self.marty.eyes("normal")
+				self.marty.set_color(0, 0, 255) # Bleu triste
+			elif self.exp == "XNG":
+				self.marty.eyes("angry")
+				self.marty.set_color(255, 0, 0) # Rouge colère
+			elif self.exp == "XHP":
+				self.marty.eyes("excited")
+				self.marty.set_color(0, 255, 0) # Vert content
+			elif self.exp == "XDN":
+				self.marty.eyes("wiggle")
+				self.marty.set_color(200, 0, 200) # Violet wiggle
+		except Exception as e:
+			self.signals.log_message.emit(f"Erreur posture ACT : {e}")
 
 	def _envoyer(self, action_type: str, color: str = "unknown"):
 		if self.api_client:
 			c = color if color != "unknown" else self.current_color
-			col_map = {"black": "N", "blue": "B", "red": "R", "purple": "P", "yellow": "Y", "green": "G", "white": "C", "cyan": "C"}
-			col_code = col_map.get(c.lower(), "N")
+			if len(c) == 1 and c.isupper():
+				col_code = c
+			else:
+				col_map = {"black": "N", "blue": "B", "red": "R", "purple": "P", "yellow": "Y", "green": "G", "white": "C", "cyan": "C"}
+				col_code = col_map.get(c.lower(), "N")
 
 			arms = []
 			if self.arm_left: arms.append(self.arm_left)
@@ -380,15 +420,15 @@ class MartyController:
 		self._action("Émotion : Yeux wiggle (LED violet) !", lambda: (self.marty.set_color(200, 0, 200), self.marty.eyes("wiggle")), "eyes", "Marty non connecté.")
 
 class DanceParser:
-	_CMDS = {"U", "D", "L", "R", "T"}
+	_CMDS = {"U", "D", "B", "L", "R", "T"}
 	_COLOR_MAP = {
-		'n': 'black',
-		'b': 'blue',
-		'r': 'red',
-		'p': 'purple',  
-		'y': 'yellow',
-		'g': 'green',
-		'c': 'white',   
+		'n': 'N',
+		'b': 'B',
+		'r': 'R',
+		'p': 'P',  
+		'y': 'Y',
+		'g': 'G',
+		'c': 'C',   
 	}
 
 	def parse(self, filepath: str) -> tuple:
@@ -414,10 +454,9 @@ class DanceParser:
 						parts = line.split()
 						if len(parts) >= 2:
 							color_code = parts[0].strip().lower()
-							actions = [a.strip().lower() for a in parts[1:]]
-							color_name = self._COLOR_MAP.get(color_code)
-							if color_name:
-								act_mapping[color_name] = actions
+							actions = [a.strip().upper() for a in parts[1:]]
+							official_color = self._COLOR_MAP.get(color_code, color_code.upper())
+							act_mapping[official_color] = actions
 					elif current_section == "SEQUENCE":
 						if len(line) > 1:
 							cmd = line[-1].upper()
@@ -436,6 +475,7 @@ class ChoreographyPlayer:
 	_ACTIONS = {
 		"U": lambda m, n: m.walk(num_steps=n, turn=0),
 		"D": lambda m, n: m.walk(num_steps=n, step_length=-25, turn=0),
+		"B": lambda m, n: m.walk(num_steps=n, step_length=-25, turn=0),
 		"L": lambda m, n: m.walk(num_steps=n, turn=25, step_length=0),
 		"R": lambda m, n: m.walk(num_steps=n, turn=-25, step_length=0),
 		"T": lambda m, n: m.walk(num_steps=n, turn=100, step_length=0),
@@ -445,18 +485,44 @@ class ChoreographyPlayer:
 		self.controller = controller
 		self.api_client = api_client
 
-	def play(self, steps: list):
+	def play(self, steps: list, act_mapping: dict, color_sensor: ColorSensor):
 		total = len(steps)
 		executed = 0
 		self.controller.signals.log_message.emit(f"Chorégraphie : {total} étapes.")
 		self.api_client.start()
+		
+		color_name_to_code = {"black": "N", "blue": "B", "red": "R", "purple": "P", "yellow": "Y", "green": "G", "cyan": "C", "white": "C", "unknown": "N"}
+
 		for idx, (cmd, n) in enumerate(steps, start=1):
 			self.controller.signals.log_message.emit(f"[{idx}/{total}] {cmd}={n}")
 			if self.controller.marty and cmd in self._ACTIONS:
-				self.controller.reset_posture()
+				
+				self.controller.reset_to_neutral()
+				
+				rgb = self.controller.lire_rgb(source="color", verbose=False)
+				if not rgb:
+					rgb = self.controller.lire_rgb(source="foot", foot="left", verbose=False)
+				
+				detected_code = "N"
+				if rgb:
+					color_name = color_sensor.identifier(*rgb)
+					detected_code = color_name_to_code.get(color_name, "N")
+				
+				self.controller.current_color = detected_code
+				actions = act_mapping.get(detected_code, [])
+				if actions:
+					self.controller.signals.log_message.emit(f"Couleur {detected_code} détectée -> Posture : {actions}")
+					self.controller.apply_act_state(actions)
+				
+				QApplication.processEvents()
+				time.sleep(0.5) 
+				
+				self.controller._envoyer(cmd, color=detected_code)
+				
 				self._ACTIONS[cmd](self.controller.marty, n)
 				executed += 1
-				self.controller._envoyer(cmd)
+				
+				self.controller.reset_to_neutral()
 			else:
 				self.controller.signals.log_message.emit(f"Mouvement ignoré (commande invalide ou robot absent) : {cmd}")
 			time.sleep(0.5)
@@ -999,22 +1065,24 @@ class MainWindow(QMainWindow):
 			("color", "", "Capteur Add-on")
 		]
 		
+		color_name_to_code = {"black": "N", "blue": "B", "red": "R", "purple": "P", "yellow": "Y", "green": "G", "cyan": "C", "white": "C", "unknown": "N"}
+		
 		try:
 			for source, foot, name in sensors_to_check:
 				rgb = self.controller.lire_rgb(source=source, foot=foot, verbose=False)
 				if rgb:
 					color_name = self.color_sensor.identifier(*rgb)
 					if color_name != "unknown":
-						actions = self.act_mapping.get(color_name)
+						detected_code = color_name_to_code.get(color_name, "N")
+						actions = self.act_mapping.get(detected_code)
 						if actions:
-							self.update_log(f"[ACT] {name} a vu {color_name.upper()} -> Actions : {', '.join(actions)}")
-							self.controller.current_color = color_name
-							for action in actions:
-								if hasattr(self.controller, action):
-									getattr(self.controller, action)()
-								QApplication.processEvents() 
-								time.sleep(0.2) 
-							self.controller.reset_posture()
+							self.update_log(f"[ACT] {name} a vu {detected_code} -> Actions : {', '.join(actions)}")
+							self.controller.current_color = detected_code
+							self.controller.apply_act_state(actions)
+							self.controller._envoyer("ACT_TEST", color=detected_code)
+							QApplication.processEvents() 
+							time.sleep(1.0) 
+							self.controller.reset_to_neutral()
 							return 
 		finally:
 			self.is_processing_act = False
@@ -1038,7 +1106,7 @@ class MainWindow(QMainWindow):
 			self.update_log("Aucune chorégraphie chargée.")
 			return
 		self.btn_play_dance.setEnabled(False)
-		self.player.play(self.current_sequence)
+		self.player.play(self.current_sequence, self.act_mapping, self.color_sensor)
 		self.btn_play_dance.setEnabled(True)
 		self.update_log("Lecture chorégraphie terminée.")
 
