@@ -1,10 +1,9 @@
-## reset all
 import sys
 import os
+import uuid
 import threading
-import queue
 from fastapi import FastAPI
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel
 from typing import Optional, Dict
 import uvicorn
 from PyQt5.QtWidgets import (
@@ -17,8 +16,6 @@ from PyQt5.QtGui import QColor
 app = FastAPI(title="AKIMBOT - Serveur Arbitre")
 
 robots_scores: dict = {}
-robot_threads: dict = {}
-robot_sessions: Dict[str, "RobotSession"] = {}
 robots_lock = threading.Lock()
 
 
@@ -31,53 +28,29 @@ class ServerSignals(QObject):
 signals = ServerSignals()
 
 
-class MovementResponse(BaseModel):
-    robot_id: str
-    action_type: str
-    color_detected: Optional[str]
-    new_score: int
-    message: str
+class StartRequest(BaseModel):
+    rid: str
 
 
-class MovementAction(BaseModel):
-    action_type: str
-    color_detected: Optional[str] = None
-
-    @field_validator("action_type")
-    @classmethod
-    def _normaliser_action(cls, v: str) -> str:
-        if not isinstance(v, str) or not v.strip():
-            raise ValueError("action_type est requis et doit être une chaîne non vide.")
-        return v.strip().lower()
-
-    @field_validator("color_detected")
-    @classmethod
-    def _normaliser_couleur(cls, v):
-        if v is None:
-            return None
-        v = str(v).strip().lower()
-        if v in ("", "unknown", "none"):
-            return None
-        return v
+class StepRequest(BaseModel):
+    rid: str
+    col: str
+    arm: str
+    exp: str
 
 
-class RobotSession(BaseModel):
-    robot_id: str
-    team: str
-    current_score: int = 0
+class ScoreRequest(BaseModel):
+    rid: str
+
+
+class ByeRequest(BaseModel):
+    rid: str
 
 
 class BattleArbitre:
-    DEFAULT_RULES = {
-        "celebrate": {"score_modifier": 10},
-        "walk": {"score_modifier": 1, "color_bonus": {"red": 5, "blue": 2}},
-        "turn": {"score_modifier": 0},
-        "default": {"score_modifier": -1},
-    }
-
     def __init__(self, battle_file: Optional[str] = None):
-        self.rules = {action: dict(rule) for action, rule in self.DEFAULT_RULES.items()}
-        self.mvs_limit = 0
+        self.mvs_limit = 10
+        self.rules = {}
         if battle_file:
             self.charger_battle(battle_file)
 
@@ -85,175 +58,123 @@ class BattleArbitre:
         if not os.path.exists(battle_file):
             return False
         try:
-            rules = {}
-            mvs_limit = self.mvs_limit
-            section = None
+            self.rules = {}
+            current_color = None
             with open(battle_file, "r", encoding="utf-8") as f:
-                for raw in f:
-                    line = raw.strip()
+                for line in f:
+                    line = line.strip()
                     if not line or line.startswith("#") or line.startswith("//"):
                         continue
-                    upper = line.upper()
-                    if upper == "[LIMITE]":
-                        section = "LIMITE"
-                        continue
-                    if upper == "[REGLES]":
-                        section = "REGLES"
-                        continue
-                    if section == "LIMITE" and "=" in line:
-                        key, _, value = line.partition("=")
-                        if key.strip().upper() == "MVS":
-                            try:
-                                mvs_limit = int(value.strip())
-                            except ValueError:
-                                continue
-                    elif section == "REGLES" and ":" in line:
-                        action, _, rest = line.partition(":")
-                        tokens = [t.strip() for t in rest.split(",") if t.strip()]
-                        if not tokens:
-                            continue
+                    
+                    if line.startswith("MVS"):
                         try:
-                            rule = {"score_modifier": int(tokens[0])}
-                        except ValueError:
-                            continue
-                        color_bonus = {}
-                        for token in tokens[1:]:
-                            if "=" in token:
-                                color, _, bonus = token.partition("=")
-                                try:
-                                    color_bonus[color.strip().lower()] = int(bonus.strip())
-                                except ValueError:
-                                    continue
-                        if color_bonus:
-                            rule["color_bonus"] = color_bonus
-                        rules[action.strip().lower()] = rule
-            if rules:
-                if "default" not in rules:
-                    rules["default"] = dict(self.DEFAULT_RULES["default"])
-                self.rules = rules
-            self.mvs_limit = mvs_limit
+                            self.mvs_limit = int(line.split()[1])
+                        except Exception:
+                            pass
+                    elif line.startswith("[") and line.endswith("]"):
+                        current_color = line[1:-1]
+                        self.rules[current_color] = []
+                    elif "=" in line and current_color:
+                        cond_str, pts_str = line.split("=")
+                        try:
+                            pts = int(pts_str)
+                            if "+" in cond_str:
+                                conds = cond_str.split("+")
+                                self.rules[current_color].append({"type": "AND", "conds": conds, "pts": pts})
+                            elif "," in cond_str:
+                                conds = cond_str.split(",")
+                                self.rules[current_color].append({"type": "OR", "conds": conds, "pts": pts})
+                            else:
+                                self.rules[current_color].append({"type": "SINGLE", "conds": [cond_str], "pts": pts})
+                        except Exception:
+                            pass
             return True
         except Exception:
             return False
 
-    def limite_atteinte(self, nb_mouvements: int) -> bool:
-        return self.mvs_limit > 0 and nb_mouvements >= self.mvs_limit
-
-    def evaluate_action(self, action: MovementAction, session: RobotSession):
-        score_change = 0
-        rule = self.rules.get(action.action_type, self.rules["default"])
-        score_change += rule.get("score_modifier", 0)
-        if action.color_detected and "color_bonus" in rule:
-            color_bonus = rule["color_bonus"].get(action.color_detected, 0)
-            score_change += color_bonus
-        session.current_score += score_change
-        return session.current_score
+    def evaluate(self, col: str, arm: str, exp: str) -> int:
+        if col not in self.rules:
+            return 0
+        
+        active_arms = set(arm.split("+")) if arm else set()
+        active_states = active_arms.copy()
+        if exp:
+            active_states.add(exp)
+            
+        points = 0
+        for rule in self.rules[col]:
+            conds = set(rule["conds"])
+            if rule["type"] == "AND":
+                if conds.issubset(active_states):
+                    points += rule["pts"]
+            elif rule["type"] == "OR":
+                if not conds.isdisjoint(active_states):
+                    points += rule["pts"]
+            elif rule["type"] == "SINGLE":
+                if conds.issubset(active_states):
+                    points += rule["pts"]
+        return points
 
 
 BATTLE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "default.battle")
 arbitre = BattleArbitre(BATTLE_FILE)
 
 
-class RobotThread(threading.Thread):
-    def __init__(self, robot_id: str, team: str):
-        super().__init__(daemon=True)
-        self.robot_id = robot_id
-        self.team = team
-        self.score = 0
-        self._queue = queue.Queue()
-        self._stop_event = threading.Event()
-
-    def update_score(self, new_score: int):
-        self._queue.put(new_score)
-
-    def stop(self):
-        self._stop_event.set()
-        self._queue.put(None)
-
-    def run(self):
-        while not self._stop_event.is_set():
-            try:
-                item = self._queue.get(timeout=1)
-                if item is None:
-                    break
-                self.score = item
-                with robots_lock:
-                    robots_scores[self.robot_id] = self.score
-                signals.robot_updated.emit(self.robot_id, self.score)
-            except queue.Empty:
-                continue
-
-
 @app.get("/")
 def read_root():
-    return {"status": "ok", "message": "Le Serveur Arbitre AKIMBOT est prêt !"}
+    return {"version": "1.2"}
 
 
-@app.post("/api/mouvements")
-def receive_movement(action: MovementAction, robot_id: str = "marty_01") -> MovementResponse:
-    """Réception d'un mouvement, calcul du score via l'arbitre et retour du nouvel état."""
-    action_json = action.model_dump_json(indent=4) if hasattr(action, "model_dump_json") else action.json(indent=4)
-    signals.new_log.emit(f"Mouvement reçu de {robot_id} :\n{action_json}")
+@app.post("/hello")
+def hello():
+    rid = str(uuid.uuid4())[:6].upper()
     with robots_lock:
-        if robot_id not in robot_sessions:
-            robot_sessions[robot_id] = RobotSession(robot_id=robot_id, team="blue", current_score=0)
-            if robot_id not in robot_threads:
-                thread = RobotThread(robot_id, "blue")
-                thread.start()
-                robot_threads[robot_id] = thread
-                robots_scores[robot_id] = 0
-        new_score = arbitre.evaluate_action(action, robot_sessions[robot_id])
-        thread = robot_threads.get(robot_id)
-    if thread:
-        thread.update_score(new_score)
-    return MovementResponse(
-        robot_id=robot_id,
-        action_type=action.action_type,
-        color_detected=action.color_detected,
-        new_score=new_score,
-        message="Mouvement validé et score mis à jour."
-    )
+        robots_scores[rid] = 0
+    signals.new_log.emit(f"Nouveau robot enregistré : {rid}")
+    signals.robot_updated.emit(rid, 0)
+    return {"rid": rid}
 
 
-@app.post("/robot/connect")
-def robot_connect(session: RobotSession):
+@app.post("/start")
+def start(req: StartRequest):
+    signals.new_log.emit(f"Robot {req.rid} démarre une chorégraphie (MVS attendus: {arbitre.mvs_limit})")
+    return {"steps": arbitre.mvs_limit}
+
+
+@app.post("/step")
+def step(req: StepRequest):
+    points = arbitre.evaluate(req.col, req.arm, req.exp)
     with robots_lock:
-        if session.robot_id not in robot_threads:
-            thread = RobotThread(session.robot_id, session.team)
-            thread.start()
-            robot_threads[session.robot_id] = thread
-            robots_scores[session.robot_id] = 0
-    signals.new_log.emit(f"POST /robot/connect - Robot '{session.robot_id}' (équipe {session.team}) connecté.")
-    signals.robot_updated.emit(session.robot_id, 0)
-    return {"status": "connected", "robot_id": session.robot_id}
+        if req.rid in robots_scores:
+            robots_scores[req.rid] += points
+        else:
+            robots_scores[req.rid] = points
+        total = robots_scores[req.rid]
+    signals.new_log.emit(f"Step {req.rid} | {req.col} {req.arm} {req.exp} -> {points} pts (Total: {total})")
+    signals.robot_updated.emit(req.rid, total)
+    return {"points": points}
 
 
-@app.post("/robot/score")
-def update_score(session: RobotSession):
+@app.get("/score")
+def get_score(req: ScoreRequest):
     with robots_lock:
-        thread = robot_threads.get(session.robot_id)
-    if thread is None:
-        return {"status": "error", "message": f"Robot '{session.robot_id}' non connecté."}
-    thread.update_score(session.current_score)
-    signals.new_log.emit(f"POST /robot/score - Robot '{session.robot_id}' → score {session.current_score}.")
-    return {"status": "updated", "robot_id": session.robot_id, "score": session.current_score}
+        pts = robots_scores.get(req.rid, 0)
+    return {"points": pts}
 
 
-@app.post("/robot/disconnect")
-def robot_disconnect(session: RobotSession):
+@app.post("/bye")
+def bye(req: ByeRequest):
     with robots_lock:
-        thread = robot_threads.pop(session.robot_id, None)
-        robots_scores.pop(session.robot_id, None)
-    if thread:
-        thread.stop()
-    signals.new_log.emit(f"POST /robot/disconnect - Robot '{session.robot_id}' déconnecté.")
-    signals.robot_disconnected.emit(session.robot_id)
-    return {"status": "disconnected", "robot_id": session.robot_id}
+        if req.rid in robots_scores:
+            del robots_scores[req.rid]
+    signals.new_log.emit(f"Robot {req.rid} déconnecté.")
+    signals.robot_disconnected.emit(req.rid)
+    return {}
 
 
 class UvicornThread(QThread):
     def run(self):
-        uvicorn.run(app, host="0.0.0.0", port=8000, log_level="info")
+        uvicorn.run(app, host="0.0.0.0", port=8000, log_level="warning")
 
 
 class ArbitreWindow(QMainWindow):
