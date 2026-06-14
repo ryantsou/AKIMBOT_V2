@@ -311,20 +311,23 @@ class MartyController:
 	def calibrer_couleur(self, couleur: str, color_sensor: ColorSensor):
 		self.signals.log_message.emit(f"Calibration en cours pour '{couleur}'... (5 mesures)")
 		prises = 0
+		r_sum, g_sum, b_sum = 0, 0, 0
 		for _ in range(5):
 			rgb = self.lire_rgb(source="color", verbose=False) or self.lire_rgb(source="foot", foot="left", verbose=False) or self.lire_rgb(source="foot", foot="right", verbose=False)
 			if rgb:
-				color_sensor.ajouter_mesure(couleur, *rgb)
+				r_sum += rgb[0]
+				g_sum += rgb[1]
+				b_sum += rgb[2]
 				prises += 1
 			time.sleep(0.2)
 			QApplication.processEvents()
 		
 		if prises > 0:
-			color_sensor.calculer_zones(couleur)
-			z = color_sensor.zones.get(couleur, {})
-			c = z.get("centre_rgb", [0,0,0])
-			ray = z.get("rayon", 80)
-			self.signals.log_message.emit(f"Calibration '{couleur}' terminée — Centre:{c} Rayon:{ray}")
+			r_avg = int(r_sum / prises)
+			g_avg = int(g_sum / prises)
+			b_avg = int(b_sum / prises)
+			color_sensor.calibrer(couleur, r_avg, g_avg, b_avg)
+			self.signals.log_message.emit(f"Calibration '{couleur}' terminée — RGB:({r_avg}, {g_avg}, {b_avg})")
 		else:
 			self.signals.log_message.emit(f"Erreur : Capteur injoignable pour '{couleur}'.")
 
@@ -556,8 +559,7 @@ class CalibrationDialog(QDialog):
 		self.color_sensor = color_sensor
 		self.rgb_data = {}
 		for _, key in self.COLORS:
-			zone = color_sensor.zones.get(key, {})
-			self.rgb_data[key] = zone.get("centre_rgb", [0, 0, 0]) if isinstance(zone, dict) else zone
+			self.rgb_data[key] = color_sensor.calibration.get(key, [0, 0, 0])
 
 		self._rgb_labels = {}
 		self.setWindowTitle("Calibration du capteur couleur")
@@ -598,9 +600,7 @@ class CalibrationDialog(QDialog):
 
 	def _lire(self, key: str):
 		self.controller.calibrer_couleur(key, self.color_sensor)
-		zone = self.color_sensor.zones.get(key, {})
-		rgb = zone.get("centre_rgb", [0, 0, 0]) if isinstance(zone, dict) else zone
-		
+		rgb = self.color_sensor.calibration.get(key, [0, 0, 0])
 		r, g, b = rgb
 		self.rgb_data[key] = list(rgb)
 		lbl_r, lbl_g, lbl_b = self._rgb_labels[key]
@@ -610,7 +610,7 @@ class CalibrationDialog(QDialog):
 
 	def _sauvegarder(self):
 		self.color_sensor._save()
-		self._status_label.setText("Calibration (Zones + Rayons) sauvegardée.")
+		self._status_label.setText("Calibration des couleurs sauvegardée.")
 
 
 class MainWindow(QMainWindow):
