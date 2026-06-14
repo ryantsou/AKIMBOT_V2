@@ -5,3 +5,4 @@ martypy
 requests
 fastapi
 uvicorn
+httpx
