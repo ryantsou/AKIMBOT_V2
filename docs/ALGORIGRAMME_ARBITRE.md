@@ -6,27 +6,27 @@ Ce document modélise le processus de calcul du score lorsqu'un client (le robot
 
 ```mermaid
 graph TD
-    Start([Réception POST /api/mouvements]) --> Parse[Parsing JSON par FastAPI]
+    Start([Réception POST /step]) --> Parse[Parsing JSON par FastAPI]
     Parse --> Valid{Données valides ?}
     
     Valid -- Non --> Err[Erreur 400 Bad Request]
     
-    Valid -- Oui --> GetSession[Récupérer la RobotSession via robot_id]
-    GetSession --> Rule[Recherche de la règle correspondant à l'action et la couleur]
+    Valid -- Oui --> Evaluate[BattleArbitre.evaluate\nÉvaluation de col, arm, exp]
+    Evaluate --> Rule[Vérification des règles + et , dans .battle]
     
     Rule --> Match{Règle trouvée dans .battle ?}
     
-    Match -- Oui --> Calc[Application du modificateur de score]
-    Match -- Non --> Skip[Score inchangé]
+    Match -- Oui --> Calc[Addition des points gagnés / perdus]
+    Match -- Non --> Skip[0 point]
     
-    Calc --> Update[Mise à jour de RobotSession.current_score]
+    Calc --> Update[Ajout des points dans robots_scores\npour le rid spécifié]
     Skip --> Update
     
-    Update --> End([Réponse HTTP 200 : Retourne le nouveau score])
+    Update --> End([Réponse HTTP 200 : Retourne les points obtenus])
 ```
 
 ## Description des étapes
-1. **Réception** : Le robot effectue une action (ex: marche sur une case rouge) et l'envoie via `requests.post`.
-2. **Validation** : Le serveur utilise Pydantic (modèle `MovementAction`) pour s'assurer que les données sont bonnes.
-3. **Évaluation** : La méthode `BattleArbitre.evaluate_action()` vérifie si cette combinaison (action + couleur) rapporte ou fait perdre des points selon les règles du fichier `.battle`.
-4. **Mise à jour & Retour** : Le score du robot est sauvegardé en mémoire et renvoyé au client pour affichage.
+1. **Réception** : Le robot se place sur une couleur et prend une posture, puis l'envoie via `requests.post` sur `/step`.
+2. **Validation** : Le serveur utilise Pydantic (modèle `StepRequest`) pour s'assurer que `rid`, `col`, `arm` et `exp` sont présents.
+3. **Évaluation** : La méthode `BattleArbitre.evaluate()` vérifie les combinaisons avec opérateurs (ET `+`, OU `,`) définies dans `.battle` pour la couleur correspondante.
+4. **Mise à jour & Retour** : Les points obtenus sont ajoutés au dictionnaire partagé `robots_scores` et retournés au client.

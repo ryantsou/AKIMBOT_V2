@@ -1,4 +1,4 @@
-﻿# Algorigramme Client — Boucle capteur → action (ACT)
+﻿﻿# Algorigramme Client — Boucle capteur → action (ACT)
 
 Ce document modélise la boucle principale du robot client : lecture du capteur couleur,
 sélection de l'action via le fichier `.dance`, exécution du mouvement et envoi au serveur
@@ -23,7 +23,7 @@ graph TD
 
     Found -- Oui --> Execute[Exécution du mouvement\nChoreographyPlayer.play\nMartyController.test_mouvement]
 
-    Execute --> Report[Envoi action + couleur au serveur arbitre\nArbitreAPIClient.send_movement]
+    Execute --> Report[Envoi état (col, arm, exp) au serveur arbitre\nArbitreAPIClient.step]
 
     Report --> Response{Réponse HTTP 200 ?}
 
@@ -45,9 +45,9 @@ graph TD
    `.dance`. Si aucune correspondance n'existe, la boucle repart en lecture capteur.
 4. **Exécution** : `ChoreographyPlayer.play()` passe la séquence de mouvements à
    `MartyController`, qui les transmet au robot Marty (ou à `MockMarty` en mode test).
-5. **Envoi arbitre** : `ArbitreAPIClient.send_movement(action_type, color)` fait un POST
-   vers le serveur FastAPI avec l'action et la couleur détectée.
-6. **Réponse** : Le serveur retourne le nouveau score. L'interface `MainWindow` met à jour
+5. **Envoi arbitre** : `ArbitreAPIClient.step(col, arm, exp)` fait un POST
+   vers le serveur FastAPI (`/step`) avec la couleur et la posture détectées.
+6. **Réponse** : L'API client demande le nouveau score (`/score`). L'interface met à jour
    le `status_label`. En cas d'erreur réseau, la boucle continue sans bloquer le robot.
 
 ## Correspondance couleurs / codes .dance

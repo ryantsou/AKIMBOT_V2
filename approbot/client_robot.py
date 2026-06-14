@@ -122,6 +122,7 @@ class MartyController:
 		self.arm_right = ""
 		self.exp = "XNT"
 		self.current_color = "unknown"
+		self.is_busy = False
 
 	def reset_to_neutral(self):
 		self.arm_left = ""
@@ -219,9 +220,17 @@ class MartyController:
 		if not (self.connected and self.marty):
 			self.signals.log_message.emit(echec)
 			return
-		self.signals.log_message.emit(message)
-		mouvement()
-		self._envoyer(action_type)
+		if self.is_busy:
+			self.signals.log_message.emit("⏳ Marty est déjà occupé, commande ignorée.")
+			return
+		
+		self.is_busy = True
+		try:
+			self.signals.log_message.emit(message)
+			mouvement()
+			self._envoyer(action_type)
+		finally:
+			self.is_busy = False
 
 	def test_mouvement(self):
 		self._action("Test basique : Marty célèbre !", lambda: self.marty.celebrate(), "celebrate", "Marty n'est pas connecté. Impossible de tester le mouvement.")
@@ -400,57 +409,64 @@ class ChoreographyPlayer:
 		self.api_client = api_client
 
 	def play(self, steps: list, act_mapping: dict, color_sensor: ColorSensor):
-		total = len(steps)
-		executed = 0
-		self.controller.signals.log_message.emit(f"Chorégraphie : {total} étapes.")
-		self.api_client.start()
-		
-		color_name_to_code = {"black": "N", "blue": "B", "red": "R", "purple": "P", "yellow": "Y", "green": "G", "cyan": "C", "white": "C", "unknown": "N"}
-
-		for idx, (cmd, n) in enumerate(steps, start=1):
-			self.controller.signals.log_message.emit(f"[{idx}/{total}] {cmd}={n}")
-			if self.controller.marty and cmd in self._ACTIONS:
-				
-				self.controller.reset_to_neutral()
-				
-				rgb = self.controller.lire_rgb(source="color", verbose=False)
-				if not rgb:
-					rgb = self.controller.lire_rgb(source="foot", foot="left", verbose=False)
-				
-				detected_code = "N"
-				if rgb:
-					color_name = color_sensor.identifier(*rgb)
-					detected_code = color_name_to_code.get(color_name, "N")
-				
-				self.controller.current_color = detected_code
-				actions = act_mapping.get(detected_code, [])
-				if actions:
-					self.controller.signals.log_message.emit(f"Couleur {detected_code} détectée -> Posture : {actions}")
-					self.controller.apply_act_state(actions)
-				
+		if self.controller.is_busy:
+			self.controller.signals.log_message.emit("⏳ Marty danse déjà, impossible de lancer une autre action !")
+			return 0
+			
+		self.controller.is_busy = True
+		try:
+			total = len(steps)
+			executed = 0
+			self.controller.signals.log_message.emit(f"Chorégraphie : {total} étapes.")
+			self.api_client.start()
+			
+			color_name_to_code = {"black": "N", "blue": "B", "red": "R", "purple": "P", "yellow": "Y", "green": "G", "cyan": "C", "white": "C", "unknown": "N"}
+	
+			for idx, (cmd, n) in enumerate(steps, start=1):
+				self.controller.signals.log_message.emit(f"[{idx}/{total}] {cmd}={n}")
+				if self.controller.marty and cmd in self._ACTIONS:
+					
+					self.controller.reset_to_neutral()
+					
+					rgb = self.controller.lire_rgb(source="color", verbose=False)
+					if not rgb:
+						rgb = self.controller.lire_rgb(source="foot", foot="left", verbose=False)
+					
+					detected_code = "N"
+					if rgb:
+						color_name = color_sensor.identifier(*rgb)
+						detected_code = color_name_to_code.get(color_name, "N")
+					
+					self.controller.current_color = detected_code
+					actions = act_mapping.get(detected_code, [])
+					if actions:
+						self.controller.signals.log_message.emit(f"Couleur {detected_code} détectée -> Posture : {actions}")
+						self.controller.apply_act_state(actions)
+					
+					QApplication.processEvents()
+					time.sleep(0.5) 
+					
+					self.controller._envoyer(cmd, color=detected_code)
+					
+					self._ACTIONS[cmd](self.controller.marty, n)
+					executed += 1
+					
+					self.controller.reset_to_neutral()
+				else:
+					self.controller.signals.log_message.emit(f"Mouvement ignoré (commande invalide ou robot absent) : {cmd}")
+				time.sleep(0.5)
+				self.controller.signals.dance_progress.emit(idx, total)
 				QApplication.processEvents()
-				time.sleep(0.5) 
-				
-				self.controller._envoyer(cmd, color=detected_code)
-				
-				self._ACTIONS[cmd](self.controller.marty, n)
-				executed += 1
-				
-				self.controller.reset_to_neutral()
+	
+			ok = executed == total
+			if ok:
+				self.controller.signals.log_message.emit(f"Vérification : {executed}/{total} mouvements exécutés (conforme).")
 			else:
-				self.controller.signals.log_message.emit(f"Mouvement ignoré (commande invalide ou robot absent) : {cmd}")
-			time.sleep(0.5)
-			self.controller.signals.dance_progress.emit(idx, total)
-			QApplication.processEvents()
-
-		self.api_client.bye()
-		ok = executed == total
-		if ok:
-			self.controller.signals.log_message.emit(f"Vérification : {executed}/{total} mouvements exécutés (conforme).")
-		else:
-			self.controller.signals.log_message.emit(f"Vérification : {executed}/{total} mouvements exécutés (écart de {total - executed}).")
-		self.controller.signals.movements_verified.emit(executed, total, ok)
-		return executed
+				self.controller.signals.log_message.emit(f"Vérification : {executed}/{total} mouvements exécutés (écart de {total - executed}).")
+			self.controller.signals.movements_verified.emit(executed, total, ok)
+			return executed
+		finally:
+			self.controller.is_busy = False
 
 class ArbitreAPIClient:
 	def __init__(self, signals: ControllerSignals, base_url="http://localhost:8000"):
@@ -994,7 +1010,7 @@ class MainWindow(QMainWindow):
 
 	def process_act_loop(self):
 		"""Boucle ACT : Vérifie les capteurs sous les pieds"""
-		if self.is_processing_act or not self.controller.connected:
+		if self.is_processing_act or not self.controller.connected or self.controller.is_busy:
 			return
 
 		self.is_processing_act = True
