@@ -124,6 +124,16 @@ class MartyController:
 		self.current_color = "unknown"
 		self.is_busy = False
 
+	def _set_color(self, r: int, g: int, b: int):
+		if not self.connected or not self.marty:
+			return
+		try:
+			if hasattr(self.marty, "disco_color"):
+				self.marty.disco_color((r, g, b))
+			elif hasattr(self.marty, "set_color"):
+				self.marty.set_color(r, g, b)
+		except Exception: pass
+
 	def reset_to_neutral(self):
 		self.arm_left = ""
 		self.arm_right = ""
@@ -133,7 +143,7 @@ class MartyController:
 		try:
 			self.marty.arms(0, 0, 500)
 			self.marty.eyes("normal")
-			self.marty.set_color(0, 0, 0)
+			self._set_color(0, 0, 0)
 		except: pass
 
 	def apply_act_state(self, actions: list):
@@ -151,19 +161,19 @@ class MartyController:
 			self.marty.arms(left_angle, right_angle, 500)
 			if self.exp == "XNT":
 				self.marty.eyes("normal")
-				self.marty.set_color(0, 0, 0)
+				self._set_color(0, 0, 0)
 			elif self.exp == "XSD":
 				self.marty.eyes("normal")
-				self.marty.set_color(0, 0, 255) # Bleu triste
+				self._set_color(0, 0, 255) # Bleu triste
 			elif self.exp == "XNG":
 				self.marty.eyes("angry")
-				self.marty.set_color(255, 0, 0) # Rouge colère
+				self._set_color(255, 0, 0) # Rouge colère
 			elif self.exp == "XHP":
 				self.marty.eyes("excited")
-				self.marty.set_color(0, 255, 0) # Vert content
+				self._set_color(0, 255, 0) # Vert content
 			elif self.exp == "XDN":
 				self.marty.eyes("wiggle")
-				self.marty.set_color(200, 0, 200) # Violet wiggle
+				self._set_color(200, 0, 200) # Violet wiggle
 		except Exception as e:
 			self.signals.log_message.emit(f"Erreur posture ACT : {e}")
 
@@ -333,17 +343,17 @@ class MartyController:
 
 	def emotion_celebrer(self):
 		self.exp = "XHP"
-		self._action("Émotion : Célébration (LED or) !", lambda: (self.marty.set_color(255, 215, 0), self.marty.celebrate()), "celebrate", "Marty non connecté.")
+		self._action("Émotion : Célébration (LED or) !", lambda: (self._set_color(255, 215, 0), self.marty.celebrate()), "celebrate", "Marty non connecté.")
 
 	def emotion_bras_ouverts(self):
 		self.arm_left = "ALU"
 		self.arm_right = "ARU"
 		self.exp = "XSD"
-		self._action("Émotion : Bras ouverts (LED bleu) !", lambda: (self.marty.set_color(0, 0, 255), self.marty.arms(left_angle=100, right_angle=-100)), "arms", "Marty non connecté.")
+		self._action("Émotion : Bras ouverts (LED bleu) !", lambda: (self._set_color(0, 0, 255), self.marty.arms(left_angle=100, right_angle=-100)), "arms", "Marty non connecté.")
 
 	def emotion_yeux_wiggle(self):
 		self.exp = "XDN"
-		self._action("Émotion : Yeux wiggle (LED violet) !", lambda: (self.marty.set_color(200, 0, 200), self.marty.eyes("wiggle")), "eyes", "Marty non connecté.")
+		self._action("Émotion : Yeux wiggle (LED violet) !", lambda: (self._set_color(200, 0, 200), self.marty.eyes("wiggle")), "eyes", "Marty non connecté.")
 
 class DanceParser:
 	_CMDS = {"U", "D", "B", "L", "R", "T"}
